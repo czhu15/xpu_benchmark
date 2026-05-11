@@ -6,7 +6,7 @@ from typing import Any
 import torch
 import torch.utils.benchmark as benchmark
 
-from xpu_bench.ops import BENCHMARK_SPECS
+from xpu_benchmark.ops import BENCHMARK_SPECS
 
 
 DTYPE_MAP = {

@@ -7,8 +7,8 @@ from typing import Sequence
 
 import torch.utils.benchmark as benchmark
 
-from xpu_bench.harness import DTYPE_MAP, run_named_benchmarks
-from xpu_bench.ops import BENCHMARK_SPECS, list_benchmarks
+from xpu_benchmark.harness import DTYPE_MAP, run_named_benchmarks
+from xpu_benchmark.ops import BENCHMARK_SPECS, list_benchmarks
 
 
 def build_parser() -> argparse.ArgumentParser:

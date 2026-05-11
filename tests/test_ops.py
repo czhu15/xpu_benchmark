@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from xpu_bench.ops import BENCHMARK_SPECS
+from xpu_benchmark.ops import BENCHMARK_SPECS
 
 
 class BenchmarkSpecTests(unittest.TestCase):

@@ -1,4 +1,4 @@
-from xpu_bench.cli import main
+from xpu_benchmark.cli import main
 
 
 if __name__ == "__main__":

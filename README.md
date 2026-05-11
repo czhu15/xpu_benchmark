@@ -1,6 +1,6 @@
-# xpu_bench
+# xpu_benchmark
 
-`xpu_bench` is a small benchmark repo for running representative PyTorch ops on Intel XPU with `torch.utils.benchmark.Timer`.
+`xpu_benchmark` is a small benchmark repo for running representative PyTorch ops on Intel XPU with `torch.utils.benchmark.Timer`.
 
 ## Covered ops
 
@@ -28,19 +28,19 @@
 List the available benchmarks:
 
 ```bash
-python -m xpu_bench list
+python -m xpu_benchmark list
 ```
 
 Run all benchmarks on XPU:
 
 ```bash
-python -m xpu_bench run --device xpu
+python -m xpu_benchmark run --device xpu
 ```
 
 Run a subset and save JSON output:
 
 ```bash
-python -m xpu_bench run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --format json --output results/run.json
+python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --format json --output results/run.json
 ```
 
 ## Default measurement flow

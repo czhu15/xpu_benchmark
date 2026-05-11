@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import unittest
 
-from xpu_bench.cli import build_parser
-from xpu_bench.harness import run_named_benchmarks
-from xpu_bench.ops import BENCHMARK_SPECS
+from xpu_benchmark.cli import build_parser
+from xpu_benchmark.harness import run_named_benchmarks
+from xpu_benchmark.ops import BENCHMARK_SPECS
 
 
 class CliTests(unittest.TestCase):
