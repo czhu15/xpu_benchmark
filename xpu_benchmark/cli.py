@@ -70,24 +70,23 @@ def _render_results(
 ) -> str:
     if output_format == "json":
         return json.dumps(results, indent=2)
-    if not measurements:
-        lines = [
-            f"{'op':>22}  {'timer':>6}  {'median (us)':>12}  {'mean (us)':>10}  {'iqr (us)':>9}  {'runs':>8}",
-            "-" * 77,
-        ]
-        for result in results:
-            lines.append(
-                f"{str(result['op_name']):>22}  "
-                f"{str(result['timer_backend']):>6}  "
-                f"{float(result['median_seconds']) * 1e6:12.2f}  "
-                f"{float(result['mean_seconds']) * 1e6:10.2f}  "
-                f"{float(result['iqr_seconds']) * 1e6:9.2f}  "
-                f"{int(result['number_per_run']):8d}"
-            )
-        return "\n".join(lines)
-    comparison = benchmark.Compare(measurements)
-    comparison.trim_significant_figures()
-    return str(comparison)
+    op_width = max([len("op"), *(len(str(result["op_name"])) for result in results)])
+    shape_width = max([len("input shape"), *(len(str(result["input_shape"])) for result in results)])
+    lines = [
+        f"{'op':>{op_width}}  {'input shape':<{shape_width}}  {'timer':>6}  {'median (us)':>12}  {'mean (us)':>10}  {'iqr (us)':>9}  {'runs':>8}",
+    ]
+    lines.append("-" * len(lines[0]))
+    for result in results:
+        lines.append(
+            f"{str(result['op_name']):>{op_width}}  "
+            f"{str(result['input_shape']):<{shape_width}}  "
+            f"{str(result['timer_backend']):>6}  "
+            f"{float(result['median_seconds']) * 1e6:12.2f}  "
+            f"{float(result['mean_seconds']) * 1e6:10.2f}  "
+            f"{float(result['iqr_seconds']) * 1e6:9.2f}  "
+            f"{int(result['number_per_run']):8d}"
+        )
+    return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

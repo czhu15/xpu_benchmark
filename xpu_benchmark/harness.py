@@ -27,6 +27,7 @@ class BenchmarkResult:
     op_name: str
     label: str
     description: str
+    input_shape: str
     timer_backend: str
     env: str
     params: dict[str, Any]
@@ -54,6 +55,34 @@ def validate_device(device: torch.device) -> None:
 
 def _format_params(params: dict[str, Any]) -> str:
     return ", ".join(f"{key}={value}" for key, value in params.items())
+
+
+def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
+    if op_name == "addmm":
+        return (
+            f"mat1=({params['m']}, {params['k']}), "
+            f"mat2=({params['k']}, {params['n']}), "
+            f"bias=({params['m']}, {params['n']})"
+        )
+    if op_name == "bmm":
+        return (
+            f"lhs=({params['batch']}, {params['m']}, {params['k']}), "
+            f"rhs=({params['batch']}, {params['k']}, {params['n']})"
+        )
+    if op_name == "group_gemm":
+        return f"{params['groups']} groups: lhs=({params['m']}, {params['k']}), rhs=({params['k']}, {params['n']})"
+    if op_name == "layernorm":
+        return f"x=({params['batch']}, {params['sequence']}, {params['hidden']})"
+    if op_name == "sum":
+        return f"x=({params['d0']}, {params['d1']}, {params['d2']}), dim={params['dim']}"
+    if op_name == "concat":
+        return f"{params['count']} tensors: ({params['rows']}, {params['cols']}), dim={params['dim']}"
+    if op_name == "copy":
+        return f"src/dst=({params['rows']}, {params['cols']})"
+    if op_name == "fused_attention_score":
+        shape = f"({params['batch']}, {params['heads']}, {params['sequence']}, {params['head_dim']})"
+        return f"q/k/v={shape}"
+    return _format_params(params)
 
 
 def _iqr(values: list[float]) -> float:
@@ -132,6 +161,7 @@ def run_named_benchmarks(
                 op_name=op_name,
                 label=spec.label,
                 description=spec.description,
+                input_shape=_format_input_shape(op_name, spec.params),
                 timer_backend=timer_backend,
                 env=env,
                 params=spec.params,

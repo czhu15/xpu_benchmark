@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from xpu_benchmark.cli import build_parser
+from xpu_benchmark.cli import _render_results, build_parser
 from xpu_benchmark.harness import run_named_benchmarks
 from xpu_benchmark.ops import BENCHMARK_SPECS
 
@@ -31,6 +31,7 @@ class CliTests(unittest.TestCase):
         )
         rendered = json.dumps([result.to_dict() for result in results])
         self.assertIn("addmm", rendered)
+        self.assertIn("input_shape", rendered)
 
     def test_timeit_results_are_serializable(self) -> None:
         measurements, results = run_named_benchmarks(
@@ -43,6 +44,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(measurements, [])
         rendered = json.dumps([result.to_dict() for result in results])
         self.assertIn('"timer_backend": "timeit"', rendered)
+        self.assertIn('"input_shape": "mat1=(512, 512), mat2=(512, 512), bias=(512, 512)"', rendered)
+
+    def test_text_results_include_input_shape_for_all_timers(self) -> None:
+        result = {
+            "op_name": "addmm",
+            "input_shape": "mat1=(512, 512), mat2=(512, 512), bias=(512, 512)",
+            "timer_backend": "torch",
+            "median_seconds": 1.0e-4,
+            "mean_seconds": 1.1e-4,
+            "iqr_seconds": 1.0e-6,
+            "number_per_run": 100,
+        }
+        rendered = _render_results([], [result], "compare")
+        self.assertIn("input shape", rendered)
+        self.assertIn("mat1=(512, 512)", rendered)
+        self.assertIn("torch", rendered)
 
 
 if __name__ == "__main__":
