@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import statistics
+import timeit
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 import torch
 import torch.utils.benchmark as benchmark
 
 from xpu_benchmark.ops import BENCHMARK_SPECS
+
+
+TimerBackend = Literal["torch", "timeit"]
+TIMER_BACKENDS: tuple[TimerBackend, ...] = ("torch", "timeit")
 
 
 DTYPE_MAP = {
@@ -21,6 +27,7 @@ class BenchmarkResult:
     op_name: str
     label: str
     description: str
+    timer_backend: str
     env: str
     params: dict[str, Any]
     median_seconds: float
@@ -49,16 +56,40 @@ def _format_params(params: dict[str, Any]) -> str:
     return ", ".join(f"{key}={value}" for key, value in params.items())
 
 
+def _iqr(values: list[float]) -> float:
+    if len(values) < 4:
+        return 0.0
+    quartiles = statistics.quantiles(values, n=4, method="inclusive")
+    return quartiles[2] - quartiles[0]
+
+
+def _timeit_autorange(timer: timeit.Timer, min_run_time: float) -> int:
+    target_run_time = max(min_run_time, 0.0)
+    scale = 1
+    while True:
+        for multiplier in (1, 2, 5):
+            number = multiplier * scale
+            total_seconds = timer.timeit(number=number)
+            if total_seconds >= target_run_time:
+                return number
+        scale *= 10
+
+
 def run_named_benchmarks(
     op_names: list[str],
     device_name: str,
     dtype_name: str,
     min_run_time: float,
+    timer_backend: TimerBackend = "torch",
 ) -> tuple[list[benchmark.Measurement], list[BenchmarkResult]]:
+    if timer_backend not in TIMER_BACKENDS:
+        supported = ", ".join(TIMER_BACKENDS)
+        raise ValueError(f"Unsupported timer backend '{timer_backend}'. Choose from: {supported}.")
+
     device = torch.device(device_name)
     validate_device(device)
     dtype = resolve_dtype(dtype_name)
-    env = f"device={device.type}, dtype={dtype_name}"
+    env = f"device={device.type}, dtype={dtype_name}, timer={timer_backend}"
 
     measurements: list[benchmark.Measurement] = []
     results: list[BenchmarkResult] = []
@@ -66,28 +97,48 @@ def run_named_benchmarks(
     for op_name in op_names:
         spec = BENCHMARK_SPECS[op_name]
         runner = spec.build(device, dtype)
-        timer = benchmark.Timer(
-            stmt="benchmark_fn()",
-            globals={"benchmark_fn": runner},
-            label=spec.label,
-            sub_label=op_name,
-            description=_format_params(spec.params),
-            env=env,
-            num_threads=1,
-        )
-        measurement = timer.blocked_autorange(min_run_time=min_run_time)
-        measurements.append(measurement)
+        if timer_backend == "torch":
+            timer = benchmark.Timer(
+                stmt="benchmark_fn()",
+                globals={"benchmark_fn": runner},
+                label=spec.label,
+                sub_label=op_name,
+                description=_format_params(spec.params),
+                env=env,
+                num_threads=1,
+            )
+            measurement = timer.blocked_autorange(min_run_time=min_run_time)
+            measurements.append(measurement)
+            median_seconds = measurement.median
+            mean_seconds = measurement.mean
+            iqr_seconds = measurement.iqr
+            number_per_run = measurement.number_per_run
+        else:
+            timer = timeit.Timer(
+                stmt="benchmark_fn()",
+                globals={"benchmark_fn": runner},
+            )
+            timer.timeit(number=1)
+            number_per_run = _timeit_autorange(timer, min_run_time=min_run_time)
+            per_run_seconds = [
+                timer.timeit(number=number_per_run) / number_per_run
+                for _ in range(5)
+            ]
+            median_seconds = statistics.median(per_run_seconds)
+            mean_seconds = statistics.fmean(per_run_seconds)
+            iqr_seconds = _iqr(per_run_seconds)
         results.append(
             BenchmarkResult(
                 op_name=op_name,
                 label=spec.label,
                 description=spec.description,
+                timer_backend=timer_backend,
                 env=env,
                 params=spec.params,
-                median_seconds=measurement.median,
-                mean_seconds=measurement.mean,
-                iqr_seconds=measurement.iqr,
-                number_per_run=measurement.number_per_run,
+                median_seconds=median_seconds,
+                mean_seconds=mean_seconds,
+                iqr_seconds=iqr_seconds,
+                number_per_run=number_per_run,
             )
         )
 

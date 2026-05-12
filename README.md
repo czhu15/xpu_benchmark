@@ -1,6 +1,6 @@
 # xpu_benchmark
 
-`xpu_benchmark` is a small benchmark repo for running representative PyTorch ops on Intel XPU with `torch.utils.benchmark.Timer`.
+`xpu_benchmark` is a small benchmark repo for running representative PyTorch ops on Intel XPU with either `torch.utils.benchmark.Timer` or Python's `timeit.Timer`.
 
 ## Covered ops
 
@@ -37,19 +37,27 @@ Run all benchmarks on XPU:
 python -m xpu_benchmark run --device xpu
 ```
 
+Run with Python's built-in `timeit.Timer` instead of the default PyTorch timer:
+
+```bash
+python -m xpu_benchmark run --device xpu --timer timeit
+```
+
 Run a subset and save JSON output:
 
 ```bash
-python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --format json --output results/run.json
+python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --timer torch --format json --output results/run.json
 ```
 
 ## Default measurement flow
 
-The harness follows the PyTorch benchmark recipe pattern:
+The default harness follows the PyTorch benchmark recipe pattern:
 
 1. Create benchmark inputs on the selected device.
 2. Wrap the benchmark callable with `torch.utils.benchmark.Timer`.
 3. Measure with `blocked_autorange`.
 4. Emit either a comparison table or JSON summary.
+
+When `--timer timeit` is selected, the harness wraps the same benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median, mean, and IQR from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
 
 The default shapes are intentionally moderate so the suite is easy to extend without rewriting the harness.

@@ -7,7 +7,7 @@ from typing import Sequence
 
 import torch.utils.benchmark as benchmark
 
-from xpu_benchmark.harness import DTYPE_MAP, run_named_benchmarks
+from xpu_benchmark.harness import DTYPE_MAP, TIMER_BACKENDS, run_named_benchmarks
 from xpu_benchmark.ops import BENCHMARK_SPECS, list_benchmarks
 
 
@@ -37,7 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-run-time",
         type=float,
         default=0.2,
-        help="Minimum blocked_autorange runtime in seconds per benchmark.",
+        help="Minimum runtime in seconds used to choose the number of iterations per benchmark.",
+    )
+    run_parser.add_argument(
+        "--timer",
+        choices=TIMER_BACKENDS,
+        default="torch",
+        help="Timer backend to use: torch uses torch.utils.benchmark.Timer; timeit uses Python timeit.Timer.",
     )
     run_parser.add_argument(
         "--format",
@@ -64,6 +70,21 @@ def _render_results(
 ) -> str:
     if output_format == "json":
         return json.dumps(results, indent=2)
+    if not measurements:
+        lines = [
+            f"{'op':>22}  {'timer':>6}  {'median (us)':>12}  {'mean (us)':>10}  {'iqr (us)':>9}  {'runs':>8}",
+            "-" * 77,
+        ]
+        for result in results:
+            lines.append(
+                f"{str(result['op_name']):>22}  "
+                f"{str(result['timer_backend']):>6}  "
+                f"{float(result['median_seconds']) * 1e6:12.2f}  "
+                f"{float(result['mean_seconds']) * 1e6:10.2f}  "
+                f"{float(result['iqr_seconds']) * 1e6:9.2f}  "
+                f"{int(result['number_per_run']):8d}"
+            )
+        return "\n".join(lines)
     comparison = benchmark.Compare(measurements)
     comparison.trim_significant_figures()
     return str(comparison)
@@ -82,6 +103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         device_name=args.device,
         dtype_name=args.dtype,
         min_run_time=args.min_run_time,
+        timer_backend=args.timer,
     )
     rendered = _render_results(
         measurements=measurements,
