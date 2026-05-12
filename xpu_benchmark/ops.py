@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import torch
 import torch.nn.functional as F
 
 BenchmarkRunner = Callable[[], Any]
-BenchmarkBuilder = Callable[[torch.device, torch.dtype], BenchmarkRunner]
+BenchmarkBuilder = Callable[[torch.device, torch.dtype, dict[str, Any]], BenchmarkRunner]
 
 
 @dataclass(frozen=True)
@@ -15,8 +17,34 @@ class BenchmarkSpec:
     name: str
     label: str
     description: str
-    params: dict[str, Any]
+    cases: list[dict[str, Any]]
     build: BenchmarkBuilder
+
+
+def _load_benchmark_cases() -> dict[str, list[dict[str, Any]]]:
+    config_path = Path(__file__).with_name("benchmark_shapes.json")
+    raw_cases = json.loads(config_path.read_text(encoding="utf-8"))
+
+    benchmark_cases: dict[str, list[dict[str, Any]]] = {}
+    for op_name, cases in raw_cases.items():
+        if not isinstance(cases, list) or not cases:
+            raise ValueError(f"Benchmark shape config for '{op_name}' must be a non-empty list.")
+        benchmark_cases[op_name] = []
+        for case in cases:
+            if not isinstance(case, dict):
+                raise ValueError(f"Each benchmark shape config for '{op_name}' must be an object.")
+            benchmark_cases[op_name].append(dict(case))
+    return benchmark_cases
+
+
+BENCHMARK_CASES = _load_benchmark_cases()
+
+
+def _cases_for(op_name: str) -> list[dict[str, Any]]:
+    try:
+        return BENCHMARK_CASES[op_name]
+    except KeyError as exc:
+        raise ValueError(f"Missing benchmark shape config for '{op_name}'.") from exc
 
 
 def _synchronize(device: torch.device) -> None:
@@ -27,9 +55,7 @@ def _synchronize(device: torch.device) -> None:
 
 
 def _addmm_spec() -> BenchmarkSpec:
-    params = {"m": 512, "k": 512, "n": 512}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         mat1 = torch.randn((params["m"], params["k"]), device=device, dtype=dtype)
         mat2 = torch.randn((params["k"], params["n"]), device=device, dtype=dtype)
         bias = torch.randn((params["m"], params["n"]), device=device, dtype=dtype)
@@ -45,15 +71,13 @@ def _addmm_spec() -> BenchmarkSpec:
         name="addmm",
         label="Matmul",
         description="torch.addmm",
-        params=params,
+        cases=_cases_for("addmm"),
         build=build,
     )
 
 
 def _bmm_spec() -> BenchmarkSpec:
-    params = {"batch": 16, "m": 128, "k": 128, "n": 128}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         lhs = torch.randn((params["batch"], params["m"], params["k"]), device=device, dtype=dtype)
         rhs = torch.randn((params["batch"], params["k"], params["n"]), device=device, dtype=dtype)
 
@@ -68,15 +92,13 @@ def _bmm_spec() -> BenchmarkSpec:
         name="bmm",
         label="Batched matmul",
         description="torch.bmm",
-        params=params,
+        cases=_cases_for("bmm"),
         build=build,
     )
 
 
 def _group_gemm_spec() -> BenchmarkSpec:
-    params = {"groups": 4, "m": 256, "k": 256, "n": 256}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         lhs = [
             torch.randn((params["m"], params["k"]), device=device, dtype=dtype)
             for _ in range(params["groups"])
@@ -99,15 +121,13 @@ def _group_gemm_spec() -> BenchmarkSpec:
         name="group_gemm",
         label="Grouped GEMM",
         description="grouped torch.matmul workload",
-        params=params,
+        cases=_cases_for("group_gemm"),
         build=build,
     )
 
 
 def _layernorm_spec() -> BenchmarkSpec:
-    params = {"batch": 32, "sequence": 256, "hidden": 768}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         x = torch.randn((params["batch"], params["sequence"], params["hidden"]), device=device, dtype=dtype)
         weight = torch.randn((params["hidden"],), device=device, dtype=dtype)
         bias = torch.randn((params["hidden"],), device=device, dtype=dtype)
@@ -123,15 +143,13 @@ def _layernorm_spec() -> BenchmarkSpec:
         name="layernorm",
         label="LayerNorm",
         description="torch.nn.functional.layer_norm",
-        params=params,
+        cases=_cases_for("layernorm"),
         build=build,
     )
 
 
 def _sum_spec() -> BenchmarkSpec:
-    params = {"d0": 128, "d1": 256, "d2": 512, "dim": -1}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         x = torch.randn((params["d0"], params["d1"], params["d2"]), device=device, dtype=dtype)
 
         def run() -> torch.Tensor:
@@ -145,15 +163,13 @@ def _sum_spec() -> BenchmarkSpec:
         name="sum",
         label="Reduction",
         description="torch.sum",
-        params=params,
+        cases=_cases_for("sum"),
         build=build,
     )
 
 
 def _concat_spec() -> BenchmarkSpec:
-    params = {"count": 4, "rows": 512, "cols": 256, "dim": 1}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         tensors = [
             torch.randn((params["rows"], params["cols"]), device=device, dtype=dtype)
             for _ in range(params["count"])
@@ -170,15 +186,13 @@ def _concat_spec() -> BenchmarkSpec:
         name="concat",
         label="Concat",
         description="torch.cat",
-        params=params,
+        cases=_cases_for("concat"),
         build=build,
     )
 
 
 def _copy_spec() -> BenchmarkSpec:
-    params = {"rows": 2048, "cols": 1024}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         src = torch.randn((params["rows"], params["cols"]), device=device, dtype=dtype)
         dst = torch.empty_like(src)
 
@@ -193,15 +207,13 @@ def _copy_spec() -> BenchmarkSpec:
         name="copy",
         label="Copy",
         description="Tensor.copy_",
-        params=params,
+        cases=_cases_for("copy"),
         build=build,
     )
 
 
 def _fused_attention_score_spec() -> BenchmarkSpec:
-    params = {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
-
-    def build(device: torch.device, dtype: torch.dtype) -> BenchmarkRunner:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         query = torch.randn(
             (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
             device=device,
@@ -236,7 +248,7 @@ def _fused_attention_score_spec() -> BenchmarkSpec:
         name="fused_attention_score",
         label="Fused attention",
         description="torch.nn.functional.scaled_dot_product_attention",
-        params=params,
+        cases=_cases_for("fused_attention_score"),
         build=build,
     )
 

@@ -117,48 +117,49 @@ def run_named_benchmarks(
 
     for op_name in op_names:
         spec = BENCHMARK_SPECS[op_name]
-        runner = spec.build(device, dtype)
-        if timer_backend == "torch":
-            timer = benchmark.Timer(
-                stmt="benchmark_fn()",
-                globals={"benchmark_fn": runner},
-                label=spec.label,
-                sub_label=op_name,
-                description=_format_params(spec.params),
-                env=env,
-                num_threads=1,
+        for params in spec.cases:
+            runner = spec.build(device, dtype, params)
+            if timer_backend == "torch":
+                timer = benchmark.Timer(
+                    stmt="benchmark_fn()",
+                    globals={"benchmark_fn": runner},
+                    label=spec.label,
+                    sub_label=op_name,
+                    description=_format_params(params),
+                    env=env,
+                    num_threads=1,
+                )
+                measurement = timer.blocked_autorange(min_run_time=min_run_time)
+                measurements.append(measurement)
+                median_seconds = measurement.median
+                mean_seconds = measurement.mean
+                number_per_run = measurement.number_per_run
+            else:
+                timer = timeit.Timer(
+                    stmt="benchmark_fn()",
+                    globals={"benchmark_fn": runner},
+                )
+                timer.timeit(number=1)
+                number_per_run = _timeit_autorange(timer, min_run_time=min_run_time)
+                per_run_seconds = [
+                    timer.timeit(number=number_per_run) / number_per_run
+                    for _ in range(5)
+                ]
+                median_seconds = statistics.median(per_run_seconds)
+                mean_seconds = statistics.fmean(per_run_seconds)
+            results.append(
+                BenchmarkResult(
+                    op_name=op_name,
+                    label=spec.label,
+                    description=spec.description,
+                    input_shape=_format_input_shape(op_name, params),
+                    timer_backend=timer_backend,
+                    env=env,
+                    params=params,
+                    median_seconds=median_seconds,
+                    mean_seconds=mean_seconds,
+                    number_per_run=number_per_run,
+                )
             )
-            measurement = timer.blocked_autorange(min_run_time=min_run_time)
-            measurements.append(measurement)
-            median_seconds = measurement.median
-            mean_seconds = measurement.mean
-            number_per_run = measurement.number_per_run
-        else:
-            timer = timeit.Timer(
-                stmt="benchmark_fn()",
-                globals={"benchmark_fn": runner},
-            )
-            timer.timeit(number=1)
-            number_per_run = _timeit_autorange(timer, min_run_time=min_run_time)
-            per_run_seconds = [
-                timer.timeit(number=number_per_run) / number_per_run
-                for _ in range(5)
-            ]
-            median_seconds = statistics.median(per_run_seconds)
-            mean_seconds = statistics.fmean(per_run_seconds)
-        results.append(
-            BenchmarkResult(
-                op_name=op_name,
-                label=spec.label,
-                description=spec.description,
-                input_shape=_format_input_shape(op_name, spec.params),
-                timer_backend=timer_backend,
-                env=env,
-                params=spec.params,
-                median_seconds=median_seconds,
-                mean_seconds=mean_seconds,
-                number_per_run=number_per_run,
-            )
-        )
 
     return measurements, results

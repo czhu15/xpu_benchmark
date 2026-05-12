@@ -1,0 +1,27 @@
+{
+  "addmm": [
+    {"m": 512, "k": 512, "n": 512},
+    {"m": 1024, "k": 512, "n": 256}
+],
+  "bmm": [
+    {"batch": 16, "m": 128, "k": 128, "n": 128}
+  ],
+  "group_gemm": [
+    {"groups": 4, "m": 256, "k": 256, "n": 256}
+  ],
+  "layernorm": [
+    {"batch": 32, "sequence": 256, "hidden": 768}
+  ],
+  "sum": [
+    {"d0": 128, "d1": 256, "d2": 512, "dim": -1}
+  ],
+  "concat": [
+    {"count": 4, "rows": 512, "cols": 256, "dim": 1}
+  ],
+  "copy": [
+    {"rows": 2048, "cols": 1024}
+  ],
+  "fused_attention_score": [
+    {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
+  ]
+}

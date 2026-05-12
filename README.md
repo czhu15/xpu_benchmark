@@ -49,6 +49,23 @@ Run a subset and save JSON output:
 python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --timer torch --format json --output results/run.json
 ```
 
+## Benchmark shape configuration
+
+Benchmark input sizes are defined in `xpu_benchmark/benchmark_shapes.json`. Each top-level key is an op name, and its value is a list of parameter objects. Add more objects to run the same op with multiple input shapes or parameter combinations.
+
+For example, to benchmark two `addmm` shapes:
+
+```json
+{
+	"addmm": [
+		{"m": 512, "k": 512, "n": 512},
+		{"m": 1024, "k": 512, "n": 256}
+	]
+}
+```
+
+When an op has multiple entries, `python -m xpu_benchmark run --ops <op>` runs all configured entries and prints one result row per entry.
+
 ## Default measurement flow
 
 The default harness follows the PyTorch benchmark recipe pattern:
@@ -60,4 +77,4 @@ The default harness follows the PyTorch benchmark recipe pattern:
 
 When `--timer timeit` is selected, the harness wraps the same benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median and mean from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
 
-The default shapes are intentionally moderate so the suite is easy to extend without rewriting the harness.
+The default shapes in `benchmark_shapes.json` are intentionally moderate so the suite is easy to extend without rewriting the harness.
