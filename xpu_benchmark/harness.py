@@ -33,7 +33,6 @@ class BenchmarkResult:
     params: dict[str, Any]
     median_seconds: float
     mean_seconds: float
-    iqr_seconds: float
     number_per_run: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,13 +84,6 @@ def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
     return _format_params(params)
 
 
-def _iqr(values: list[float]) -> float:
-    if len(values) < 4:
-        return 0.0
-    quartiles = statistics.quantiles(values, n=4, method="inclusive")
-    return quartiles[2] - quartiles[0]
-
-
 def _timeit_autorange(timer: timeit.Timer, min_run_time: float) -> int:
     target_run_time = max(min_run_time, 0.0)
     scale = 1
@@ -140,7 +132,6 @@ def run_named_benchmarks(
             measurements.append(measurement)
             median_seconds = measurement.median
             mean_seconds = measurement.mean
-            iqr_seconds = measurement.iqr
             number_per_run = measurement.number_per_run
         else:
             timer = timeit.Timer(
@@ -155,7 +146,6 @@ def run_named_benchmarks(
             ]
             median_seconds = statistics.median(per_run_seconds)
             mean_seconds = statistics.fmean(per_run_seconds)
-            iqr_seconds = _iqr(per_run_seconds)
         results.append(
             BenchmarkResult(
                 op_name=op_name,
@@ -167,7 +157,6 @@ def run_named_benchmarks(
                 params=spec.params,
                 median_seconds=median_seconds,
                 mean_seconds=mean_seconds,
-                iqr_seconds=iqr_seconds,
                 number_per_run=number_per_run,
             )
         )

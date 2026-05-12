@@ -58,6 +58,6 @@ The default harness follows the PyTorch benchmark recipe pattern:
 3. Measure with `blocked_autorange`.
 4. Emit either a comparison table or JSON summary.
 
-When `--timer timeit` is selected, the harness wraps the same benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median, mean, and IQR from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
+When `--timer timeit` is selected, the harness wraps the same benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median and mean from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
 
 The default shapes are intentionally moderate so the suite is easy to extend without rewriting the harness.

@@ -53,7 +53,6 @@ class CliTests(unittest.TestCase):
             "timer_backend": "torch",
             "median_seconds": 1.0e-4,
             "mean_seconds": 1.1e-4,
-            "iqr_seconds": 1.0e-6,
             "number_per_run": 100,
         }
         rendered = _render_results([], [result], "compare")
