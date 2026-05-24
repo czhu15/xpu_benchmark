@@ -15,7 +15,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.device, "xpu")
         self.assertEqual(args.dtype, "float32")
         self.assertEqual(args.ops, sorted(BENCHMARK_SPECS))
-        self.assertEqual(args.timer, "torch")
+        self.assertEqual(args.timer, "timeit")
 
     def test_parser_accepts_timeit_timer(self) -> None:
         parser = build_parser()

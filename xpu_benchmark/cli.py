@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--timer",
         choices=TIMER_BACKENDS,
-        default="torch",
+        default="timeit",
         help="Timer backend to use: torch uses torch.utils.benchmark.Timer; timeit uses Python timeit.Timer.",
     )
     run_parser.add_argument(

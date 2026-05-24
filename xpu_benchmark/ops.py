@@ -109,6 +109,9 @@ def _group_gemm_spec() -> BenchmarkSpec:
         ]
 
         def run() -> torch.Tensor:
+            # Current implementation of grouped GEMM is to loop over groups on each GEMM,
+            # This is not the most efficient way to do grouped GEMM. Need call the specific 
+            # grouped GEMM kernel when it is available.
             result = torch.empty((params["m"], params["n"]), device=device, dtype=dtype)
             for left, right in zip(lhs, rhs):
                 result = torch.matmul(left, right)

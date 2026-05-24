@@ -37,10 +37,10 @@ Run all benchmarks on XPU:
 python -m xpu_benchmark run --device xpu
 ```
 
-Run with Python's built-in `timeit.Timer` instead of the default PyTorch timer:
+Run with the PyTorch benchmark timer instead of the default Python `timeit.Timer`:
 
 ```bash
-python -m xpu_benchmark run --device xpu --timer timeit
+python -m xpu_benchmark run --device xpu --timer torch
 ```
 
 Run a subset and save JSON output:
@@ -66,15 +66,15 @@ For example, to benchmark two `addmm` shapes:
 
 When an op has multiple entries, `python -m xpu_benchmark run --ops <op>` runs all configured entries and prints one result row per entry.
 
-## Default measurement flow
+## Measurement flow
 
-The default harness follows the PyTorch benchmark recipe pattern:
+By default, the harness wraps each benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median and mean from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
+
+When `--timer torch` is selected, the harness follows the PyTorch benchmark recipe pattern:
 
 1. Create benchmark inputs on the selected device.
 2. Wrap the benchmark callable with `torch.utils.benchmark.Timer`.
 3. Measure with `blocked_autorange`.
 4. Emit either a comparison table or JSON summary.
-
-When `--timer timeit` is selected, the harness wraps the same benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median and mean from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
 
 The default shapes in `benchmark_shapes.json` are intentionally moderate so the suite is easy to extend without rewriting the harness.
