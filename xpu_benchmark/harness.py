@@ -57,31 +57,39 @@ def _format_params(params: dict[str, Any]) -> str:
 
 
 def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
-    if op_name == "addmm":
-        return (
+    is_backward = op_name.endswith("_backward")
+    base_op_name = op_name.removesuffix("_backward") if is_backward else op_name
+
+    def format_direction(shape: str) -> str:
+        return f"backward: {shape}" if is_backward else shape
+
+    if base_op_name == "addmm":
+        return format_direction(
             f"mat1=({params['m']}, {params['k']}), "
             f"mat2=({params['k']}, {params['n']}), "
             f"bias=({params['m']}, {params['n']})"
         )
-    if op_name == "bmm":
-        return (
+    if base_op_name == "bmm":
+        return format_direction(
             f"lhs=({params['batch']}, {params['m']}, {params['k']}), "
             f"rhs=({params['batch']}, {params['k']}, {params['n']})"
         )
-    if op_name == "group_gemm":
-        return f"{params['groups']} groups: lhs=({params['m']}, {params['k']}), rhs=({params['k']}, {params['n']})"
-    if op_name == "layernorm":
-        return f"x=({params['batch']}, {params['sequence']}, {params['hidden']})"
-    if op_name == "sum":
-        return f"x=({params['d0']}, {params['d1']}, {params['d2']}), dim={params['dim']}"
-    if op_name == "concat":
-        return f"{params['count']} tensors: ({params['rows']}, {params['cols']}), dim={params['dim']}"
-    if op_name == "copy":
-        return f"src/dst=({params['rows']}, {params['cols']})"
-    if op_name == "fused_attention_score":
+    if base_op_name == "group_gemm":
+        return format_direction(
+            f"{params['groups']} groups: lhs=({params['m']}, {params['k']}), rhs=({params['k']}, {params['n']})"
+        )
+    if base_op_name == "layernorm":
+        return format_direction(f"x=({params['batch']}, {params['sequence']}, {params['hidden']})")
+    if base_op_name == "sum":
+        return format_direction(f"x=({params['d0']}, {params['d1']}, {params['d2']}), dim={params['dim']}")
+    if base_op_name == "concat":
+        return format_direction(f"{params['count']} tensors: ({params['rows']}, {params['cols']}), dim={params['dim']}")
+    if base_op_name == "copy":
+        return format_direction(f"src/dst=({params['rows']}, {params['cols']})")
+    if base_op_name == "fused_attention_score":
         shape = f"({params['batch']}, {params['heads']}, {params['sequence']}, {params['head_dim']})"
-        return f"q/k/v={shape}"
-    return _format_params(params)
+        return format_direction(f"q/k/v={shape}")
+    return format_direction(_format_params(params))
 
 
 def _timeit_autorange(timer: timeit.Timer, min_run_time: float) -> int:

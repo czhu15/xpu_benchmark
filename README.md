@@ -13,6 +13,8 @@
 - `copy`
 - `fused_attention_score`
 
+Each op also has a backward benchmark named `<op>_backward`, for example `addmm_backward` and `fused_attention_score_backward`.
+
 ## Notes on op mappings
 
 - `group_gemm` is implemented as a grouped workload of independent `torch.matmul` calls, measured as one benchmark case.
@@ -49,9 +51,15 @@ Run a subset and save JSON output:
 python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --timer torch --format json --output results/run.json
 ```
 
+Run forward and backward benchmarks for the same op:
+
+```bash
+python -m xpu_benchmark run --ops addmm addmm_backward --device xpu
+```
+
 ## Benchmark shape configuration
 
-Benchmark input sizes are defined in `xpu_benchmark/benchmark_shapes.json`. Each top-level key is an op name, and its value is a list of parameter objects. Add more objects to run the same op with multiple input shapes or parameter combinations.
+Benchmark input sizes are defined in `xpu_benchmark/benchmark_shapes.json`. Each top-level key is a forward op name, and its value is a list of parameter objects. Backward benchmarks reuse the corresponding forward op's cases. Add more objects to run the same op with multiple input shapes or parameter combinations.
 
 For example, to benchmark two `addmm` shapes:
 
