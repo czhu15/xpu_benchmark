@@ -54,6 +54,12 @@ Run a subset and save JSON output:
 python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu --dtype float16 --timer torch --format json --output results/run.json
 ```
 
+Run with a fixed number of iterations per measurement instead of automatic autoranging:
+
+```bash
+python -m xpu_benchmark run --ops triton_flash_attention --device xpu --dtype float16 --runs 100
+```
+
 Run forward and backward benchmarks for the same op:
 
 ```bash

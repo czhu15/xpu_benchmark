@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum runtime in seconds used to choose the number of iterations per benchmark.",
     )
     run_parser.add_argument(
+        "--runs",
+        type=int,
+        help="Fixed number of benchmark iterations per measurement. Overrides --min-run-time autoranging.",
+    )
+    run_parser.add_argument(
         "--timer",
         choices=TIMER_BACKENDS,
         default="timeit",
@@ -102,6 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         dtype_name=args.dtype,
         min_run_time=args.min_run_time,
         timer_backend=args.timer,
+        runs=args.runs,
     )
     rendered = _render_results(
         measurements=measurements,

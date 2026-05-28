@@ -110,10 +110,13 @@ def run_named_benchmarks(
     dtype_name: str,
     min_run_time: float,
     timer_backend: TimerBackend = "torch",
+    runs: int | None = None,
 ) -> tuple[list[benchmark.Measurement], list[BenchmarkResult]]:
     if timer_backend not in TIMER_BACKENDS:
         supported = ", ".join(TIMER_BACKENDS)
         raise ValueError(f"Unsupported timer backend '{timer_backend}'. Choose from: {supported}.")
+    if runs is not None and runs < 1:
+        raise ValueError("runs must be a positive integer when provided.")
 
     device = torch.device(device_name)
     validate_device(device)
@@ -137,7 +140,7 @@ def run_named_benchmarks(
                     env=env,
                     num_threads=1,
                 )
-                measurement = timer.blocked_autorange(min_run_time=min_run_time)
+                measurement = timer.timeit(runs) if runs is not None else timer.blocked_autorange(min_run_time=min_run_time)
                 measurements.append(measurement)
                 median_seconds = measurement.median
                 mean_seconds = measurement.mean
@@ -148,7 +151,7 @@ def run_named_benchmarks(
                     globals={"benchmark_fn": runner},
                 )
                 timer.timeit(number=1)
-                number_per_run = _timeit_autorange(timer, min_run_time=min_run_time)
+                number_per_run = runs if runs is not None else _timeit_autorange(timer, min_run_time=min_run_time)
                 per_run_seconds = [
                     timer.timeit(number=number_per_run) / number_per_run
                     for _ in range(5)

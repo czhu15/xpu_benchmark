@@ -22,6 +22,11 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["run", "--timer", "timeit"])
         self.assertEqual(args.timer, "timeit")
 
+    def test_parser_accepts_fixed_runs(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["run", "--runs", "7"])
+        self.assertEqual(args.runs, 7)
+
     def test_json_results_are_serializable(self) -> None:
         _, results = run_named_benchmarks(
             op_names=["addmm"],
@@ -45,6 +50,28 @@ class CliTests(unittest.TestCase):
         rendered = json.dumps([result.to_dict() for result in results])
         self.assertIn('"timer_backend": "timeit"', rendered)
         self.assertIn('"input_shape": "mat1=(512, 512), mat2=(512, 512), bias=(512, 512)"', rendered)
+
+    def test_fixed_runs_are_used_with_timeit_timer(self) -> None:
+        _, results = run_named_benchmarks(
+            op_names=["addmm"],
+            device_name="cpu",
+            dtype_name="float32",
+            min_run_time=10.0,
+            timer_backend="timeit",
+            runs=3,
+        )
+        self.assertEqual(results[0].number_per_run, 3)
+
+    def test_fixed_runs_are_used_with_torch_timer(self) -> None:
+        _, results = run_named_benchmarks(
+            op_names=["addmm"],
+            device_name="cpu",
+            dtype_name="float32",
+            min_run_time=10.0,
+            timer_backend="torch",
+            runs=3,
+        )
+        self.assertEqual(results[0].number_per_run, 3)
 
     def test_text_results_include_input_shape_for_all_timers(self) -> None:
         result = {
