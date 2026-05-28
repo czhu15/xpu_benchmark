@@ -18,13 +18,14 @@ BASE_EXPECTED_SPECS = {
     "fused_attention_score",
 }
 
+FORWARD_ONLY_EXPECTED_SPECS = {"triton_flash_attention"}
 BACKWARD_EXPECTED_SPECS = {f"{name}_backward" for name in BASE_EXPECTED_SPECS}
 
 
 class BenchmarkSpecTests(unittest.TestCase):
     def test_all_requested_benchmarks_exist(self) -> None:
-        self.assertEqual(set(BENCHMARK_SPECS), BASE_EXPECTED_SPECS | BACKWARD_EXPECTED_SPECS)
-        self.assertEqual(set(BENCHMARK_CASES), BASE_EXPECTED_SPECS)
+        self.assertEqual(set(BENCHMARK_SPECS), BASE_EXPECTED_SPECS | BACKWARD_EXPECTED_SPECS | FORWARD_ONLY_EXPECTED_SPECS)
+        self.assertEqual(set(BENCHMARK_CASES), BASE_EXPECTED_SPECS | FORWARD_ONLY_EXPECTED_SPECS)
 
     def test_each_benchmark_has_configured_cases(self) -> None:
         for op_name, spec in BENCHMARK_SPECS.items():

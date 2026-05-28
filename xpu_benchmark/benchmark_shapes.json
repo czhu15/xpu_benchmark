@@ -23,5 +23,8 @@
   ],
   "fused_attention_score": [
     {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
+  ],
+  "triton_flash_attention": [
+    {"batch": 4, "heads": 8, "sequence": 1024, "head_dim": 64}
   ]
 }

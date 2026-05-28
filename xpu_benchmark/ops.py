@@ -8,6 +8,8 @@ from typing import Any, Callable
 import torch
 import torch.nn.functional as F
 
+from xpu_benchmark.triton_flash_attention import triton_flash_attention
+
 BenchmarkRunner = Callable[[], Any]
 BenchmarkBuilder = Callable[[torch.device, torch.dtype, dict[str, Any]], BenchmarkRunner]
 
@@ -498,6 +500,40 @@ def _fused_attention_score_backward_spec() -> BenchmarkSpec:
     )
 
 
+def _triton_flash_attention_spec() -> BenchmarkSpec:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
+        query = torch.randn(
+            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            device=device,
+            dtype=dtype,
+        )
+        key = torch.randn(
+            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            device=device,
+            dtype=dtype,
+        )
+        value = torch.randn(
+            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            device=device,
+            dtype=dtype,
+        )
+
+        def run() -> torch.Tensor:
+            result = triton_flash_attention(query, key, value, is_causal=False)
+            _synchronize(device)
+            return result
+
+        return run
+
+    return BenchmarkSpec(
+        name="triton_flash_attention",
+        label="Triton Flash Attention",
+        description="custom Triton Flash Attention forward kernel",
+        cases=_cases_for("triton_flash_attention"),
+        build=build,
+    )
+
+
 BENCHMARK_SPECS = {
     spec.name: spec
     for spec in (
@@ -517,6 +553,7 @@ BENCHMARK_SPECS = {
         _copy_backward_spec(),
         _fused_attention_score_spec(),
         _fused_attention_score_backward_spec(),
+        _triton_flash_attention_spec(),
     )
 }
 
