@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from xpu_benchmark.triton_flash_attention import triton_flash_attention
+from xpu_benchmark.triton_swiglu import triton_swiglu
 
 BenchmarkRunner = Callable[[], Any]
 BenchmarkBuilder = Callable[[torch.device, torch.dtype, dict[str, Any]], BenchmarkRunner]
@@ -534,6 +535,29 @@ def _triton_flash_attention_spec() -> BenchmarkSpec:
     )
 
 
+def _triton_swiglu_spec() -> BenchmarkSpec:
+    def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
+        x = torch.randn((params["tokens"], params["hidden"]), device=device, dtype=dtype)
+        w1 = torch.randn((params["intermediate"], params["hidden"]), device=device, dtype=dtype)
+        w2 = torch.randn((params["intermediate"], params["hidden"]), device=device, dtype=dtype)
+        w3 = torch.randn((params["hidden"], params["intermediate"]), device=device, dtype=dtype)
+
+        def run() -> torch.Tensor:
+            result = triton_swiglu(x, w1, w2, w3)
+            _synchronize(device)
+            return result
+
+        return run
+
+    return BenchmarkSpec(
+        name="triton_swiglu",
+        label="Triton SwiGLU",
+        description="custom Triton fused SwiGLU forward kernel",
+        cases=_cases_for("triton_swiglu"),
+        build=build,
+    )
+
+
 BENCHMARK_SPECS = {
     spec.name: spec
     for spec in (
@@ -554,6 +578,7 @@ BENCHMARK_SPECS = {
         _fused_attention_score_spec(),
         _fused_attention_score_backward_spec(),
         _triton_flash_attention_spec(),
+        _triton_swiglu_spec(),
     )
 }
 

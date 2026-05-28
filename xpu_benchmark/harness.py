@@ -92,6 +92,10 @@ def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
     if base_op_name == "triton_flash_attention":
         shape = f"({params['sequence']}, {params['heads']}, {params['head_dim']})"
         return format_direction(f"q/k/v={shape}")
+    if base_op_name == "triton_swiglu":
+        return format_direction(
+            f"x=({params['tokens']}, {params['hidden']}), intermediate={params['intermediate']}"
+        )
     return format_direction(_format_params(params))
 
 
