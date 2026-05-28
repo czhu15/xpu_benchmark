@@ -503,17 +503,17 @@ def _fused_attention_score_backward_spec() -> BenchmarkSpec:
 def _triton_flash_attention_spec() -> BenchmarkSpec:
     def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         query = torch.randn(
-            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            (params["sequence"], params["heads"], params["head_dim"]),
             device=device,
             dtype=dtype,
         )
         key = torch.randn(
-            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            (params["sequence"], params["heads"], params["head_dim"]),
             device=device,
             dtype=dtype,
         )
         value = torch.randn(
-            (params["batch"], params["heads"], params["sequence"], params["head_dim"]),
+            (params["sequence"], params["heads"], params["head_dim"]),
             device=device,
             dtype=dtype,
         )

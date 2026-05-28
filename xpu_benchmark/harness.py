@@ -86,8 +86,11 @@ def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
         return format_direction(f"{params['count']} tensors: ({params['rows']}, {params['cols']}), dim={params['dim']}")
     if base_op_name == "copy":
         return format_direction(f"src/dst=({params['rows']}, {params['cols']})")
-    if base_op_name in {"fused_attention_score", "triton_flash_attention"}:
+    if base_op_name == "fused_attention_score":
         shape = f"({params['batch']}, {params['heads']}, {params['sequence']}, {params['head_dim']})"
+        return format_direction(f"q/k/v={shape}")
+    if base_op_name == "triton_flash_attention":
+        shape = f"({params['sequence']}, {params['heads']}, {params['head_dim']})"
         return format_direction(f"q/k/v={shape}")
     return format_direction(_format_params(params))
 

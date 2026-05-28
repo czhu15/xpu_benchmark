@@ -23,12 +23,18 @@ class TritonFlashAttentionTests(unittest.TestCase):
             self.skipTest("Triton Flash Attention requires Triton and a CUDA/XPU device.")
 
         torch.manual_seed(0)
-        query = torch.randn((2, 3, 32, 32), device=device, dtype=torch.float16)
+        query = torch.randn((32, 3, 32), device=device, dtype=torch.float16)
         key = torch.randn_like(query)
         value = torch.randn_like(query)
 
         actual = triton_flash_attention(query, key, value)
-        expected = F.scaled_dot_product_attention(query, key, value, dropout_p=0.0, is_causal=False)
+        expected = F.scaled_dot_product_attention(
+            query.transpose(0, 1),
+            key.transpose(0, 1),
+            value.transpose(0, 1),
+            dropout_p=0.0,
+            is_causal=False,
+        ).transpose(0, 1)
 
         self.assertTrue(torch.allclose(actual.float(), expected.float(), atol=2.0e-2, rtol=2.0e-2))
 
@@ -38,12 +44,18 @@ class TritonFlashAttentionTests(unittest.TestCase):
             self.skipTest("Triton Flash Attention requires Triton and a CUDA/XPU device.")
 
         torch.manual_seed(1)
-        query = torch.randn((1, 2, 32, 32), device=device, dtype=torch.float16)
+        query = torch.randn((32, 2, 32), device=device, dtype=torch.float16)
         key = torch.randn_like(query)
         value = torch.randn_like(query)
 
         actual = triton_flash_attention(query, key, value, is_causal=True)
-        expected = F.scaled_dot_product_attention(query, key, value, dropout_p=0.0, is_causal=True)
+        expected = F.scaled_dot_product_attention(
+            query.transpose(0, 1),
+            key.transpose(0, 1),
+            value.transpose(0, 1),
+            dropout_p=0.0,
+            is_causal=True,
+        ).transpose(0, 1)
 
         self.assertTrue(torch.allclose(actual.float(), expected.float(), atol=2.0e-2, rtol=2.0e-2))
 

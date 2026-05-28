@@ -27,23 +27,18 @@ if is_triton_flash_attention_available():
         value,
         output,
         softmax_scale: tl.constexpr,
-        stride_qb: tl.constexpr,
-        stride_qh: tl.constexpr,
         stride_qm: tl.constexpr,
+        stride_qh: tl.constexpr,
         stride_qd: tl.constexpr,
-        stride_kb: tl.constexpr,
-        stride_kh: tl.constexpr,
         stride_kn: tl.constexpr,
+        stride_kh: tl.constexpr,
         stride_kd: tl.constexpr,
-        stride_vb: tl.constexpr,
-        stride_vh: tl.constexpr,
         stride_vn: tl.constexpr,
+        stride_vh: tl.constexpr,
         stride_vd: tl.constexpr,
-        stride_ob: tl.constexpr,
-        stride_oh: tl.constexpr,
         stride_om: tl.constexpr,
+        stride_oh: tl.constexpr,
         stride_od: tl.constexpr,
-        heads: tl.constexpr,
         sequence: tl.constexpr,
         head_dim: tl.constexpr,
         block_m: tl.constexpr,
@@ -52,9 +47,7 @@ if is_triton_flash_attention_available():
         is_causal: tl.constexpr,
     ):
         block_start_m = tl.program_id(0) * block_m
-        batch_head = tl.program_id(1)
-        head = batch_head % heads
-        batch = batch_head // heads
+        head = tl.program_id(1)
 
         offs_m = block_start_m + tl.arange(0, block_m)
         offs_n = tl.arange(0, block_n)
@@ -62,9 +55,8 @@ if is_triton_flash_attention_available():
 
         query_ptrs = (
             query
-            + batch * stride_qb
-            + head * stride_qh
             + offs_m[:, None] * stride_qm
+            + head * stride_qh
             + offs_d[None, :] * stride_qd
         )
         query_block = tl.load(
@@ -81,16 +73,14 @@ if is_triton_flash_attention_available():
             current_n = start_n + offs_n
             key_ptrs = (
                 key
-                + batch * stride_kb
-                + head * stride_kh
                 + current_n[None, :] * stride_kn
+                + head * stride_kh
                 + offs_d[:, None] * stride_kd
             )
             value_ptrs = (
                 value
-                + batch * stride_vb
-                + head * stride_vh
                 + current_n[:, None] * stride_vn
+                + head * stride_vh
                 + offs_d[None, :] * stride_vd
             )
             key_block = tl.load(
@@ -123,9 +113,8 @@ if is_triton_flash_attention_available():
         output_block = accumulator / normalizer[:, None]
         output_ptrs = (
             output
-            + batch * stride_ob
-            + head * stride_oh
             + offs_m[:, None] * stride_om
+            + head * stride_oh
             + offs_d[None, :] * stride_od
         )
         tl.store(
@@ -145,9 +134,9 @@ def _validate_flash_attention_inputs(query: torch.Tensor, key: torch.Tensor, val
     if query.device.type not in {"cuda", "xpu"}:
         raise RuntimeError("triton_flash_attention requires a CUDA or XPU tensor device.")
     if query.shape != key.shape or query.shape != value.shape:
-        raise ValueError("query, key, and value must have identical shape: (batch, heads, sequence, head_dim).")
-    if query.ndim != 4:
-        raise ValueError("query, key, and value must be 4D tensors: (batch, heads, sequence, head_dim).")
+        raise ValueError("query, key, and value must have identical shape: (sequence, heads, head_dim).")
+    if query.ndim != 3:
+        raise ValueError("query, key, and value must be 3D tensors: (sequence, heads, head_dim).")
     if query.dtype not in {torch.float16, torch.bfloat16, torch.float32}:
         raise TypeError("triton_flash_attention supports float16, bfloat16, and float32 tensors.")
     if key.dtype != query.dtype or value.dtype != query.dtype:
@@ -170,17 +159,18 @@ def triton_flash_attention(
 ) -> torch.Tensor:
     """Run Flash Attention forward with a Triton kernel.
 
-    Inputs must have shape ``(batch, heads, sequence, head_dim)``. The function
+    Inputs must have shape ``(sequence, heads, head_dim)``. The function
     implements inference-style forward attention without dropout or backward.
     """
+
     _validate_flash_attention_inputs(query, key, value)
 
-    batch, heads, sequence, head_dim = query.shape
+    sequence, heads, head_dim = query.shape
     scale = float(softmax_scale) if softmax_scale is not None else 1.0 / math.sqrt(head_dim)
     block_d = _next_power_of_2(head_dim)
     output = torch.empty_like(query)
 
-    grid = (triton.cdiv(sequence, block_m), batch * heads)
+    grid = (triton.cdiv(sequence, block_m), heads)
     _flash_attention_forward_kernel[grid](
         query,
         key,
@@ -190,20 +180,15 @@ def triton_flash_attention(
         query.stride(0),
         query.stride(1),
         query.stride(2),
-        query.stride(3),
         key.stride(0),
         key.stride(1),
         key.stride(2),
-        key.stride(3),
         value.stride(0),
         value.stride(1),
         value.stride(2),
-        value.stride(3),
         output.stride(0),
         output.stride(1),
         output.stride(2),
-        output.stride(3),
-        heads,
         sequence,
         head_dim,
         block_m,

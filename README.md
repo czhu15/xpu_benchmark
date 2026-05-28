@@ -20,7 +20,7 @@ Each PyTorch op also has a backward benchmark named `<op>_backward`, for example
 
 - `group_gemm` is implemented as a grouped workload of independent `torch.matmul` calls, measured as one benchmark case.
 - `fused_attention_score` is benchmarked through `torch.nn.functional.scaled_dot_product_attention`, which is the closest fused attention primitive exposed directly through `torch`.
-- `triton_flash_attention` is implemented in `xpu_benchmark/triton_flash_attention.py` as a tiled online-softmax Flash Attention forward kernel for tensors shaped `(batch, heads, sequence, head_dim)`.
+- `triton_flash_attention` is implemented in `xpu_benchmark/triton_flash_attention.py` as a tiled online-softmax Flash Attention forward kernel for tensors shaped `(sequence, heads, head_dim)`.
 
 ## Requirements
 

@@ -25,6 +25,6 @@
     {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
   ],
   "triton_flash_attention": [
-    {"batch": 256, "heads": 8, "sequence": 1024, "head_dim": 64}
+    {"sequence": 262144, "heads": 8, "head_dim": 64}
   ]
 }
