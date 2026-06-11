@@ -75,7 +75,7 @@ if is_triton_swiglu_available():
 
     @triton.autotune(
         configs=_get_autotune_configs(),
-        key=["N", "K", "IS_TRAINING"],
+        key=["N", "K"],
     )
     @triton.jit
     def _fused_swiglu_fwd_kernel(
@@ -85,12 +85,9 @@ if is_triton_swiglu_available():
         b_g_ptr,
         b_fc_ptr,
         y_ptr,
-        g_ptr,
-        fc_ptr,
         M,
         N,
         K,
-        IS_TRAINING: tl.constexpr,
         BLOCK_SIZE_M: tl.constexpr,
         BLOCK_SIZE_N: tl.constexpr,
         BLOCK_SIZE_K: tl.constexpr,
@@ -161,22 +158,6 @@ if is_triton_swiglu_available():
         )
         desc_y.store([off_m, off_n], y)
 
-        if IS_TRAINING:
-            desc_g = tl.make_tensor_descriptor(
-                g_ptr,
-                shape=[M, N],
-                strides=[N, 1],
-                block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-            )
-            desc_fc = tl.make_tensor_descriptor(
-                fc_ptr,
-                shape=[M, N],
-                strides=[N, 1],
-                block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-            )
-            desc_g.store([off_m, off_n], accumulator_g)
-            desc_fc.store([off_m, off_n], accumulator_fc)
-
 
 def _validate_swiglu_inputs(
     x: torch.Tensor,
@@ -240,8 +221,6 @@ def triton_swiglu(
     b_g_contiguous = b_g.contiguous() if b_g is not None else torch.zeros((intermediate,), device=x.device, dtype=x.dtype)
     b_fc_contiguous = b_fc.contiguous() if b_fc is not None else torch.zeros((intermediate,), device=x.device, dtype=x.dtype)
     output = torch.empty((tokens, intermediate), device=x.device, dtype=x.dtype)
-    gate = x.new_empty(1)
-    fc = x.new_empty(1)
 
     total_len = tokens
     if intermediate % 64 != 0 or hidden % 32 != 0:
@@ -260,12 +239,9 @@ def triton_swiglu(
         b_g_contiguous,
         b_fc_contiguous,
         output,
-        gate,
-        fc,
         total_len,
         intermediate,
         hidden,
-        IS_TRAINING=False,
     )
     return output.reshape(*x.shape[:-1], intermediate)
 
