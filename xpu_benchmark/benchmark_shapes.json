@@ -24,8 +24,8 @@
   "fused_attention_score": [
     {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
   ],
-  "triton_flash_attention": [
-    {"sequence": 8192, "heads": 8, "head_dim": 64}
+  "triton_varlen_flash_attention": [
+    {"batch": 256, "num_heads": 8, "head_dim": 64, "total_q": 289239, "total_k": 289239, "max_seqlen_q": 2656, "max_seqlen_k": 2656, "load_dump": true}
   ],
   "triton_swiglu": [
     {"tokens": 289239, "hidden": 512, "intermediate": 1024}

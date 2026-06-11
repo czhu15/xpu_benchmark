@@ -18,7 +18,7 @@ BASE_EXPECTED_SPECS = {
     "fused_attention_score",
 }
 
-FORWARD_ONLY_EXPECTED_SPECS = {"triton_flash_attention", "triton_swiglu"}
+FORWARD_ONLY_EXPECTED_SPECS = {"triton_varlen_flash_attention", "triton_swiglu"}
 BACKWARD_EXPECTED_SPECS = {f"{name}_backward" for name in BASE_EXPECTED_SPECS}
 
 

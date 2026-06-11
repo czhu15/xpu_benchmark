@@ -90,7 +90,13 @@ def _format_input_shape(op_name: str, params: dict[str, Any]) -> str:
     if base_op_name == "fused_attention_score":
         shape = f"({params['batch']}, {params['heads']}, {params['sequence']}, {params['head_dim']})"
         return format_direction(f"q/k/v={shape}")
-    if base_op_name == "triton_flash_attention":
+    if base_op_name == "triton_varlen_flash_attention":
+        if "total_q" in params:
+            return format_direction(
+                f"q=({params['total_q']}, {params['num_heads']}, {params['head_dim']}), "
+                f"k/v=({params['total_k']}, {params['num_heads']}, {params['head_dim']}), "
+                f"batch={params['batch']}, max_q={params['max_seqlen_q']}, max_k={params['max_seqlen_k']}"
+            )
         shape = f"({params['sequence']}, {params['heads']}, {params['head_dim']})"
         return format_direction(f"q/k/v={shape}")
     if base_op_name == "triton_swiglu":

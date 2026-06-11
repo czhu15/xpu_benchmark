@@ -12,23 +12,23 @@
 - `concat`
 - `copy`
 - `fused_attention_score`
-- `triton_flash_attention`
+- `triton_varlen_flash_attention`
 - `triton_swiglu`
 
-Each PyTorch op also has a backward benchmark named `<op>_backward`, for example `addmm_backward` and `fused_attention_score_backward`. `triton_flash_attention` and `triton_swiglu` are custom forward-only Triton kernels.
+Each PyTorch op also has a backward benchmark named `<op>_backward`, for example `addmm_backward` and `fused_attention_score_backward`. `triton_varlen_flash_attention` and `triton_swiglu` are custom forward-only Triton kernels.
 
 ## Notes on op mappings
 
 - `group_gemm` is implemented as a grouped workload of independent `torch.matmul` calls, measured as one benchmark case.
 - `fused_attention_score` is benchmarked through `torch.nn.functional.scaled_dot_product_attention`, which is the closest fused attention primitive exposed directly through `torch`.
-- `triton_flash_attention` is implemented in `xpu_benchmark/triton_flash_attention.py` as a tiled online-softmax Flash Attention forward kernel for tensors shaped `(sequence, heads, head_dim)`.
+- `triton_varlen_flash_attention` is implemented in `xpu_benchmark/triton_varlen_flash_attention.py` as a varlen tiled online-softmax Flash Attention forward kernel. Its inputs follow the packed reference-style interface: `q`, `k`, `v`, `q_attn_arg`, `k_attn_arg`, `cu_seqlens_q`, `cu_seqlens_k`, `max_seqlen_q`, `max_seqlen_k`, `scale`, `mask_fn`, and `sparse_opt`.
 - `triton_swiglu` is implemented in `xpu_benchmark/triton_swiglu.py` as the fused two-GEMM SwiGLU path from Intel Triton XPU PR 7152: `silu(x @ w_g + b_g) * (x @ w_fc + b_fc)`.
 
 ## Requirements
 
 - Python with the `torch` package already installed
 - Intel XPU available through `torch.xpu`
-- Optional: `triton` for the `triton_flash_attention` benchmark
+- Optional: `triton` for the `triton_varlen_flash_attention` benchmark
 
 ## Usage
 
@@ -65,7 +65,7 @@ python -m xpu_benchmark run --ops addmm bmm fused_attention_score --device xpu -
 Run with a fixed number of iterations per measurement instead of automatic autoranging:
 
 ```bash
-python -m xpu_benchmark run --ops triton_flash_attention --device xpu --dtype float16 --runs 100
+python -m xpu_benchmark run --ops triton_varlen_flash_attention --device xpu --dtype float16 --runs 100
 ```
 
 Run forward and backward benchmarks for the same op:
@@ -90,6 +90,8 @@ For example, to benchmark two `addmm` shapes:
 ```
 
 When an op has multiple entries, `python -m xpu_benchmark run --ops <op>` runs all configured entries and prints one result row per entry.
+
+For `triton_varlen_flash_attention`, set `load_dump` to `true` to load packed inputs from `flash_attention_args.pt` in the repository root. Otherwise, configure `batch`, `num_heads`, `head_dim`, `total_q`, `total_k`, `max_seqlen_q`, and `max_seqlen_k` to generate synthetic packed inputs.
 
 ## Measurement flow
 

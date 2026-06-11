@@ -18,14 +18,6 @@ def is_triton_swiglu_available() -> bool:
     return triton is not None and tl is not None and libdevice is not None and hasattr(tl, "make_tensor_descriptor")
 
 
-def _is_ampere() -> bool:
-    return torch.cuda.is_available() and torch.cuda.get_device_properties(0).major == 8
-
-
-def _is_hopper() -> bool:
-    return torch.cuda.is_available() and torch.cuda.get_device_properties(0).major == 9
-
-
 def _is_xpu() -> bool:
     return hasattr(torch, "xpu") and torch.xpu.is_available()
 
@@ -40,22 +32,6 @@ if is_triton_swiglu_available():
 
 
     def _get_autotune_configs() -> list[triton.Config]:
-        if _is_hopper():
-            return [
-                triton.Config(
-                    {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8},
-                    num_stages=3,
-                    num_warps=4,
-                )
-            ]
-        if _is_ampere():
-            return [
-                triton.Config(
-                    {"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
-                    num_stages=3,
-                    num_warps=4,
-                )
-            ]
         if _is_xpu():
             return [
                 triton.Config(

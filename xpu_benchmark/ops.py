@@ -8,7 +8,7 @@ from typing import Any, Callable
 import torch
 import torch.nn.functional as F
 
-from xpu_benchmark.triton_flash_attention import triton_flash_attention
+from xpu_benchmark.triton_varlen_flash_attention import triton_varlen_flash_attention
 from xpu_benchmark.triton_swiglu import triton_swiglu
 
 BenchmarkRunner = Callable[[], Any]
@@ -505,36 +505,83 @@ def _fused_attention_score_backward_spec() -> BenchmarkSpec:
     )
 
 
-def _triton_flash_attention_spec() -> BenchmarkSpec:
+def _triton_varlen_flash_attention_spec() -> BenchmarkSpec:
+    def _as_int(value: Any) -> int:
+        return int(value.item()) if isinstance(value, torch.Tensor) else int(value)
+
+    def _make_cu_seqlens(batch: int, total_tokens: int, max_seqlen: int, device: torch.device) -> torch.Tensor:
+        base = total_tokens // batch
+        remainder = total_tokens % batch
+        if base + (1 if remainder else 0) > max_seqlen:
+            raise ValueError("total tokens cannot be distributed within max_seqlen for triton_varlen_flash_attention.")
+        lengths = torch.full((batch,), base, device=device, dtype=torch.int32)
+        if remainder:
+            lengths[:remainder] += 1
+        return torch.cat((torch.zeros((1,), device=device, dtype=torch.int32), torch.cumsum(lengths, dim=0)))
+
     def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
-        query = torch.randn(
-            (params["sequence"], params["heads"], params["head_dim"]),
-            device=device,
-            dtype=dtype,
-        )
-        key = torch.randn(
-            (params["sequence"], params["heads"], params["head_dim"]),
-            device=device,
-            dtype=dtype,
-        )
-        value = torch.randn(
-            (params["sequence"], params["heads"], params["head_dim"]),
-            device=device,
-            dtype=dtype,
-        )
+        if params.get("load_dump"):
+            dump_path = Path(__file__).resolve().parent.parent / "flash_attention_args.pt"
+            if not dump_path.exists():
+                raise FileNotFoundError(f"FlashAttention dump not found: {dump_path}")
+            try:
+                dump = torch.load(dump_path, map_location=device, weights_only=True)
+            except TypeError:
+                dump = torch.load(dump_path, map_location=device)
+            query = dump["q"].to(device=device, dtype=dtype).contiguous()
+            key = dump["k"].to(device=device, dtype=dtype).contiguous()
+            value = dump["v"].to(device=device, dtype=dtype).contiguous()
+            cu_seqlens_q = dump["cu_seqlens_q"].to(device=device, dtype=torch.int32).contiguous()
+            cu_seqlens_k = dump["cu_seqlens_k"].to(device=device, dtype=torch.int32).contiguous()
+            max_seqlen_q = _as_int(dump["max_seqlen_q"])
+            max_seqlen_k = _as_int(dump["max_seqlen_k"])
+            q_attn_arg = dump["q_attn_arg"].to(device=device).contiguous()
+            k_attn_arg = dump["k_attn_arg"].to(device=device).contiguous()
+        else:
+            batch = int(params["batch"])
+            num_heads = int(params["num_heads"])
+            head_dim = int(params["head_dim"])
+            total_q = int(params["total_q"])
+            total_k = int(params["total_k"])
+            max_seqlen_q = int(params["max_seqlen_q"])
+            max_seqlen_k = int(params["max_seqlen_k"])
+            query = torch.randn((total_q, num_heads, head_dim), device=device, dtype=dtype)
+            key = torch.randn((total_k, num_heads, head_dim), device=device, dtype=dtype)
+            value = torch.randn((total_k, num_heads, head_dim), device=device, dtype=dtype)
+            cu_seqlens_q = _make_cu_seqlens(batch, total_q, max_seqlen_q, device)
+            cu_seqlens_k = _make_cu_seqlens(batch, total_k, max_seqlen_k, device)
+            q_attn_arg = torch.zeros((total_q,), device=device, dtype=torch.int32)
+            k_attn_arg = torch.zeros((total_k,), device=device, dtype=torch.int32)
+
+        scale = 1.0 / (query.shape[-1] ** 0.5)
+        mask_fn = int(params.get("mask_fn", 1))
+        sparse_opt = bool(params.get("sparse_opt", False))
 
         def run() -> torch.Tensor:
-            result = triton_flash_attention(query, key, value, is_causal=False)
+            result = triton_varlen_flash_attention(
+                query,
+                key,
+                value,
+                q_attn_arg,
+                k_attn_arg,
+                cu_seqlens_q,
+                cu_seqlens_k,
+                max_seqlen_q,
+                max_seqlen_k,
+                scale,
+                mask_fn,
+                sparse_opt,
+            )
             _synchronize(device)
             return result
 
         return run
 
     return BenchmarkSpec(
-        name="triton_flash_attention",
-        label="Triton Flash Attention",
+        name="triton_varlen_flash_attention",
+        label="Triton Varlen Flash Attention",
         description="custom Triton Flash Attention forward kernel",
-        cases=_cases_for("triton_flash_attention"),
+        cases=_cases_for("triton_varlen_flash_attention"),
         build=build,
     )
 
@@ -582,7 +629,7 @@ BENCHMARK_SPECS = {
         _copy_backward_spec(),
         _fused_attention_score_spec(),
         _fused_attention_score_backward_spec(),
-        _triton_flash_attention_spec(),
+        _triton_varlen_flash_attention_spec(),
         _triton_swiglu_spec(),
     )
 }
