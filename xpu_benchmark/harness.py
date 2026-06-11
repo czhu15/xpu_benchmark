@@ -27,9 +27,13 @@ DTYPE_BYTES = {
     "bfloat16": 2,
 }
 
+# below is the default spec for B70
 DEFAULT_PEAK_TFLOPS_BF16 = 183.0
 DEFAULT_PEAK_BANDWIDTH_GBPS = 608.0
 
+# # below is the default spec for B60
+# DEFAULT_PEAK_TFLOPS_BF16 = 98.5
+# DEFAULT_PEAK_BANDWIDTH_GBPS = 456.0
 
 @dataclass(frozen=True)
 class BenchmarkResult:
