@@ -32,6 +32,12 @@ class CliTests(unittest.TestCase):
         args = parser.parse_args(["run", "--runs", "7"])
         self.assertEqual(args.runs, 7)
 
+    def test_parser_defaults_roofline_peaks(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["run"])
+        self.assertEqual(args.peak_tflops, 183.0)
+        self.assertEqual(args.peak_bandwidth_gbps, 608.0)
+
     def test_json_results_are_serializable(self) -> None:
         _, results = run_named_benchmarks(
             op_names=["addmm"],
@@ -43,6 +49,14 @@ class CliTests(unittest.TestCase):
         self.assertIn("addmm", rendered)
         self.assertIn("input_shape", rendered)
         self.assertIn('"dtype_name": "float32"', rendered)
+        self.assertIn("tflops", rendered)
+        self.assertIn("bandwidth_gbps", rendered)
+        self.assertIn("peak_tflops_percent", rendered)
+        self.assertIn("peak_bandwidth_percent", rendered)
+        self.assertIn("arithmetic_intensity", rendered)
+        self.assertIn("roofline_tflops", rendered)
+        self.assertIn("eff_vs_roofline_percent", rendered)
+        self.assertIn("bound_hint", rendered)
 
     def test_timeit_results_are_serializable(self) -> None:
         measurements, results = run_named_benchmarks(
@@ -88,13 +102,32 @@ class CliTests(unittest.TestCase):
             "median_seconds": 1.0e-4,
             "mean_seconds": 1.1e-4,
             "number_per_run": 100,
+            "tflops": 2.5,
+            "peak_tflops_percent": 1.37,
+            "bandwidth_gbps": 300.0,
+            "peak_bandwidth_percent": 49.34,
+            "arithmetic_intensity": 8.33,
+            "roofline_tflops": 5.06,
+            "eff_vs_roofline_percent": 49.41,
+            "bound_hint": "memory-bound",
         }
         rendered = _render_results([], [result], "compare")
         self.assertIn("input shape", rendered)
         self.assertIn("dtype", rendered)
+        self.assertIn("TFLOPS", rendered)
+        self.assertIn("%peak_tflops", rendered)
+        self.assertIn("GB/s", rendered)
+        self.assertIn("%peak_bw", rendered)
+        self.assertIn("AI(F/B)", rendered)
+        self.assertIn("roofline_tflops", rendered)
+        self.assertIn("eff_vs_roofline(%)", rendered)
+        self.assertIn("bound_hint", rendered)
         self.assertIn("float32", rendered)
         self.assertIn("mat1=(512, 512)", rendered)
         self.assertIn("torch", rendered)
+        self.assertIn("2.50", rendered)
+        self.assertIn("300.00", rendered)
+        self.assertIn("memory-bound", rendered)
 
 
 if __name__ == "__main__":

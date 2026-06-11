@@ -68,6 +68,12 @@ Run with a fixed number of iterations per measurement instead of automatic autor
 python -m xpu_benchmark run --ops triton_varlen_flash_attention --device xpu --dtype float16 --runs 100
 ```
 
+Override the roofline reference peaks used for utilization percentages:
+
+```bash
+python -m xpu_benchmark run --ops triton_swiglu --device xpu --dtype bfloat16 --timer event --peak-tflops 183 --peak-bandwidth-gbps 608
+```
+
 Run forward and backward benchmarks for the same op:
 
 ```bash
@@ -107,3 +113,18 @@ When `--timer torch` is selected, the harness follows the PyTorch benchmark reci
 4. Emit either a comparison table or JSON summary.
 
 The default shapes in `benchmark_shapes.json` are intentionally moderate so the suite is easy to extend without rewriting the harness.
+
+## Roofline metrics
+
+Each benchmark row includes estimated roofline metrics computed from the configured shape and measured median time:
+
+- `TFLOPS`: estimated floating-point operations per second in TFLOPS.
+- `Bandwidth (GB/s)`: estimated tensor memory bandwidth in GB/s.
+- `%peak_tflops`: `TFLOPS / --peak-tflops * 100`; the default peak is `183` TFLOPS for BF16.
+- `%peak_bw`: `Bandwidth (GB/s) / --peak-bandwidth-gbps * 100`; the default bandwidth is `608` GB/s.
+- `AI(F/B)`: arithmetic intensity, computed as `TFLOPS * 1000 / Bandwidth (GB/s)`.
+- `roofline_tflops`: best achievable performance under the roofline model, `min(peak_tflops, AI(F/B) * peak_bandwidth_gbps / 1000)`.
+- `eff_vs_roofline(%)`: `TFLOPS / roofline_tflops * 100`.
+- `bound_hint`: `memory-bound` when `AI(F/B)` is below the ridge point, otherwise `compute-bound`.
+
+The FLOP and byte counts are analytical estimates for comparing benchmark cases consistently. For dump-based varlen FlashAttention, the estimate uses `batch`, `total_q`, `total_k`, `num_heads`, and `head_dim` from `benchmark_shapes.json`.
