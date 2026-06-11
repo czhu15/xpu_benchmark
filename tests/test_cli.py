@@ -13,7 +13,7 @@ class CliTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["run"])
         self.assertEqual(args.device, "xpu")
-        self.assertEqual(args.dtype, "float32")
+        self.assertEqual(args.dtype, "bfloat16")
         self.assertEqual(args.ops, sorted(BENCHMARK_SPECS))
         self.assertEqual(args.timer, "timeit")
 
@@ -21,6 +21,11 @@ class CliTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["run", "--timer", "timeit"])
         self.assertEqual(args.timer, "timeit")
+
+    def test_parser_accepts_event_timer(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["run", "--timer", "event"])
+        self.assertEqual(args.timer, "event")
 
     def test_parser_accepts_fixed_runs(self) -> None:
         parser = build_parser()
@@ -37,6 +42,7 @@ class CliTests(unittest.TestCase):
         rendered = json.dumps([result.to_dict() for result in results])
         self.assertIn("addmm", rendered)
         self.assertIn("input_shape", rendered)
+        self.assertIn('"dtype_name": "float32"', rendered)
 
     def test_timeit_results_are_serializable(self) -> None:
         measurements, results = run_named_benchmarks(
@@ -77,6 +83,7 @@ class CliTests(unittest.TestCase):
         result = {
             "op_name": "addmm",
             "input_shape": "mat1=(512, 512), mat2=(512, 512), bias=(512, 512)",
+            "dtype_name": "float32",
             "timer_backend": "torch",
             "median_seconds": 1.0e-4,
             "mean_seconds": 1.1e-4,
@@ -84,6 +91,8 @@ class CliTests(unittest.TestCase):
         }
         rendered = _render_results([], [result], "compare")
         self.assertIn("input shape", rendered)
+        self.assertIn("dtype", rendered)
+        self.assertIn("float32", rendered)
         self.assertIn("mat1=(512, 512)", rendered)
         self.assertIn("torch", rendered)
 

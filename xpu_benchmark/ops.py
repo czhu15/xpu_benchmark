@@ -14,6 +14,8 @@ from xpu_benchmark.triton_swiglu import triton_swiglu
 BenchmarkRunner = Callable[[], Any]
 BenchmarkBuilder = Callable[[torch.device, torch.dtype, dict[str, Any]], BenchmarkRunner]
 
+_sync_enabled = True
+
 
 @dataclass(frozen=True)
 class BenchmarkSpec:
@@ -51,6 +53,8 @@ def _cases_for(op_name: str) -> list[dict[str, Any]]:
 
 
 def _synchronize(device: torch.device) -> None:
+    if not _sync_enabled:
+        return
     if device.type == "xpu":
         torch.xpu.synchronize()
     elif device.type == "cuda":
@@ -538,12 +542,13 @@ def _triton_flash_attention_spec() -> BenchmarkSpec:
 def _triton_swiglu_spec() -> BenchmarkSpec:
     def build(device: torch.device, dtype: torch.dtype, params: dict[str, Any]) -> BenchmarkRunner:
         x = torch.randn((params["tokens"], params["hidden"]), device=device, dtype=dtype)
-        w1 = torch.randn((params["intermediate"], params["hidden"]), device=device, dtype=dtype)
-        w2 = torch.randn((params["intermediate"], params["hidden"]), device=device, dtype=dtype)
-        w3 = torch.randn((params["hidden"], params["intermediate"]), device=device, dtype=dtype)
+        w_g = torch.randn((params["hidden"], params["intermediate"]), device=device, dtype=dtype)
+        w_fc = torch.randn((params["hidden"], params["intermediate"]), device=device, dtype=dtype)
+        b_g = torch.randn((params["intermediate"],), device=device, dtype=dtype)
+        b_fc = torch.randn((params["intermediate"],), device=device, dtype=dtype)
 
         def run() -> torch.Tensor:
-            result = triton_swiglu(x, w1, w2, w3)
+            result = triton_swiglu(x, w_g, w_fc, b_g, b_fc)
             _synchronize(device)
             return result
 

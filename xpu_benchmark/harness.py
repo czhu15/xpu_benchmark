@@ -11,8 +11,8 @@ import torch.utils.benchmark as benchmark
 from xpu_benchmark.ops import BENCHMARK_SPECS
 
 
-TimerBackend = Literal["torch", "timeit"]
-TIMER_BACKENDS: tuple[TimerBackend, ...] = ("torch", "timeit")
+TimerBackend = Literal["torch", "timeit", "event"]
+TIMER_BACKENDS: tuple[TimerBackend, ...] = ("torch", "timeit", "event")
 
 
 DTYPE_MAP = {
@@ -28,6 +28,7 @@ class BenchmarkResult:
     label: str
     description: str
     input_shape: str
+    dtype_name: str
     timer_backend: str
     env: str
     params: dict[str, Any]
@@ -111,6 +112,41 @@ def _timeit_autorange(timer: timeit.Timer, min_run_time: float) -> int:
         scale *= 10
 
 
+def _event_benchmark(
+    runner: Any,
+    device: torch.device,
+    warmup: int = 10,
+    repeat: int = 100,
+) -> tuple[float, float]:
+    import xpu_benchmark.ops as ops_module
+
+    for _ in range(warmup):
+        runner()
+
+    ops_module._sync_enabled = False
+    try:
+        if device.type == "xpu":
+            starts = [torch.xpu.Event(enable_timing=True) for _ in range(repeat)]
+            ends = [torch.xpu.Event(enable_timing=True) for _ in range(repeat)]
+        elif device.type == "cuda":
+            starts = [torch.cuda.Event(enable_timing=True) for _ in range(repeat)]
+            ends = [torch.cuda.Event(enable_timing=True) for _ in range(repeat)]
+        else:
+            raise RuntimeError(f"Event timing is not supported for device type '{device.type}'.")
+
+        for index in range(repeat):
+            starts[index].record()
+            runner()
+            ends[index].record()
+        ends[-1].synchronize()
+        elapsed_ms = [starts[index].elapsed_time(ends[index]) for index in range(repeat)]
+    finally:
+        ops_module._sync_enabled = True
+
+    elapsed_seconds = [elapsed / 1000.0 for elapsed in elapsed_ms]
+    return statistics.median(elapsed_seconds), statistics.fmean(elapsed_seconds)
+
+
 def run_named_benchmarks(
     op_names: list[str],
     device_name: str,
@@ -152,6 +188,9 @@ def run_named_benchmarks(
                 median_seconds = measurement.median
                 mean_seconds = measurement.mean
                 number_per_run = measurement.number_per_run
+            elif timer_backend == "event":
+                number_per_run = runs if runs is not None else 100
+                median_seconds, mean_seconds = _event_benchmark(runner, device, repeat=number_per_run)
             else:
                 timer = timeit.Timer(
                     stmt="benchmark_fn()",
@@ -171,6 +210,7 @@ def run_named_benchmarks(
                     label=spec.label,
                     description=spec.description,
                     input_shape=_format_input_shape(op_name, params),
+                    dtype_name=dtype_name,
                     timer_backend=timer_backend,
                     env=env,
                     params=params,

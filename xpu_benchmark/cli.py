@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--device", default="xpu", help="Device to benchmark on, for example xpu or cpu.")
     run_parser.add_argument(
         "--dtype",
-        default="float32",
+        default="bfloat16",
         choices=sorted(DTYPE_MAP),
         help="Tensor dtype to use for benchmark inputs.",
     )
@@ -48,7 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--timer",
         choices=TIMER_BACKENDS,
         default="timeit",
-        help="Timer backend to use: torch uses torch.utils.benchmark.Timer; timeit uses Python timeit.Timer.",
+        help=(
+            "Timer backend to use: event uses accelerator events for device-side kernel time; "
+            "torch uses torch.utils.benchmark.Timer; timeit uses Python timeit.Timer."
+        ),
     )
     run_parser.add_argument(
         "--format",
@@ -77,14 +80,16 @@ def _render_results(
         return json.dumps(results, indent=2)
     op_width = max([len("op"), *(len(str(result["op_name"])) for result in results)])
     shape_width = max([len("input shape"), *(len(str(result["input_shape"])) for result in results)])
+    dtype_width = max([len("dtype"), *(len(str(result.get("dtype_name", ""))) for result in results)])
     lines = [
-        f"{'op':>{op_width}}  {'input shape':<{shape_width}}  {'timer':>6}  {'median (us)':>12}  {'mean (us)':>10}  {'runs':>8}",
+        f"{'op':>{op_width}}  {'input shape':<{shape_width}}  {'dtype':>{dtype_width}}  {'timer':>6}  {'median (us)':>12}  {'mean (us)':>10}  {'runs':>8}",
     ]
     lines.append("-" * len(lines[0]))
     for result in results:
         lines.append(
             f"{str(result['op_name']):>{op_width}}  "
             f"{str(result['input_shape']):<{shape_width}}  "
+            f"{str(result.get('dtype_name', '')):>{dtype_width}}  "
             f"{str(result['timer_backend']):>6}  "
             f"{float(result['median_seconds']) * 1e6:12.2f}  "
             f"{float(result['mean_seconds']) * 1e6:10.2f}  "

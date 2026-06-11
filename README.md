@@ -1,6 +1,6 @@
 # xpu_benchmark
 
-`xpu_benchmark` is a small benchmark repo for running representative PyTorch ops on Intel XPU with either `torch.utils.benchmark.Timer` or Python's `timeit.Timer`.
+`xpu_benchmark` is a small benchmark repo for running representative PyTorch ops on Intel XPU with XPU/CUDA events, `torch.utils.benchmark.Timer`, or Python's `timeit.Timer`.
 
 ## Covered ops
 
@@ -22,7 +22,7 @@ Each PyTorch op also has a backward benchmark named `<op>_backward`, for example
 - `group_gemm` is implemented as a grouped workload of independent `torch.matmul` calls, measured as one benchmark case.
 - `fused_attention_score` is benchmarked through `torch.nn.functional.scaled_dot_product_attention`, which is the closest fused attention primitive exposed directly through `torch`.
 - `triton_flash_attention` is implemented in `xpu_benchmark/triton_flash_attention.py` as a tiled online-softmax Flash Attention forward kernel for tensors shaped `(sequence, heads, head_dim)`.
-- `triton_swiglu` is implemented in `xpu_benchmark/triton_swiglu.py` as a SwiGLU forward path: `w3(silu(w1(x)) * w2(x))`, with the intermediate activation product fused in Triton.
+- `triton_swiglu` is implemented in `xpu_benchmark/triton_swiglu.py` as the fused two-GEMM SwiGLU path from Intel Triton XPU PR 7152: `silu(x @ w_g + b_g) * (x @ w_fc + b_fc)`.
 
 ## Requirements
 
@@ -48,6 +48,12 @@ Run with the PyTorch benchmark timer instead of the default Python `timeit.Timer
 
 ```bash
 python -m xpu_benchmark run --device xpu --timer torch
+```
+
+Measure accelerator-side kernel time with XPU/CUDA events:
+
+```bash
+python -m xpu_benchmark run --ops triton_swiglu --device xpu --dtype bfloat16 --timer event
 ```
 
 Run a subset and save JSON output:
@@ -88,6 +94,8 @@ When an op has multiple entries, `python -m xpu_benchmark run --ops <op>` runs a
 ## Measurement flow
 
 By default, the harness wraps each benchmark callable with `timeit.Timer`, chooses an iteration count using an autorange-style loop, then reports median and mean from repeated per-run timings. The benchmark callables synchronize XPU/CUDA work before returning, so accelerator timings include kernel completion rather than only launch overhead.
+
+When `--timer event` is selected, the harness uses XPU/CUDA events to measure device-side elapsed time and temporarily disables the per-run synchronization inside benchmark callables. This is useful when comparing against profiler or event-based benchmark suites.
 
 When `--timer torch` is selected, the harness follows the PyTorch benchmark recipe pattern:
 

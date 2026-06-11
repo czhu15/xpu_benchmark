@@ -7,145 +7,202 @@ import torch
 try:
     import triton
     import triton.language as tl
+    from triton.language.extra import libdevice
 except ImportError:  # pragma: no cover - exercised when Triton is unavailable.
     triton = None
     tl = None
+    libdevice = None
 
 
 def is_triton_swiglu_available() -> bool:
-    return triton is not None and tl is not None
+    return triton is not None and tl is not None and libdevice is not None and hasattr(tl, "make_tensor_descriptor")
+
+
+def _is_ampere() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_properties(0).major == 8
+
+
+def _is_hopper() -> bool:
+    return torch.cuda.is_available() and torch.cuda.get_device_properties(0).major == 9
+
+
+def _is_xpu() -> bool:
+    return hasattr(torch, "xpu") and torch.xpu.is_available()
 
 
 if is_triton_swiglu_available():
 
     @triton.jit
-    def _swiglu_forward_kernel(
-        x,
-        w1,
-        w2,
-        w3,
-        bias1,
-        bias2,
-        bias3,
-        output,
-        tokens: tl.constexpr,
-        hidden: tl.constexpr,
-        intermediate: tl.constexpr,
-        stride_xt: tl.constexpr,
-        stride_xh: tl.constexpr,
-        stride_w1i: tl.constexpr,
-        stride_w1h: tl.constexpr,
-        stride_w2i: tl.constexpr,
-        stride_w2h: tl.constexpr,
-        stride_w3h: tl.constexpr,
-        stride_w3i: tl.constexpr,
-        stride_ot: tl.constexpr,
-        stride_oh: tl.constexpr,
-        has_bias1: tl.constexpr,
-        has_bias2: tl.constexpr,
-        has_bias3: tl.constexpr,
-        block_tokens: tl.constexpr,
-        block_hidden_out: tl.constexpr,
-        block_intermediate: tl.constexpr,
-        block_hidden_in: tl.constexpr,
-    ):
-        token_offsets = tl.program_id(0) * block_tokens + tl.arange(0, block_tokens)
-        hidden_out_offsets = tl.program_id(1) * block_hidden_out + tl.arange(0, block_hidden_out)
-        intermediate_offsets_base = tl.arange(0, block_intermediate)
-        hidden_in_offsets_base = tl.arange(0, block_hidden_in)
+    def _fast_silu(x):
+        dtype = x.type.element_ty
+        x = x.to(tl.float32)
+        return libdevice.fast_dividef(x, 1.0 + libdevice.fast_expf(-x)).to(dtype)
 
-        output_accumulator = tl.zeros((block_tokens, block_hidden_out), tl.float32)
 
-        for intermediate_start in range(0, intermediate, block_intermediate):
-            intermediate_offsets = intermediate_start + intermediate_offsets_base
-            gate_accumulator = tl.zeros((block_tokens, block_intermediate), tl.float32)
-            up_accumulator = tl.zeros((block_tokens, block_intermediate), tl.float32)
-
-            for hidden_start in range(0, hidden, block_hidden_in):
-                hidden_in_offsets = hidden_start + hidden_in_offsets_base
-                x_block = tl.load(
-                    x + token_offsets[:, None] * stride_xt + hidden_in_offsets[None, :] * stride_xh,
-                    mask=(token_offsets[:, None] < tokens) & (hidden_in_offsets[None, :] < hidden),
-                    other=0.0,
+    def _get_autotune_configs() -> list[triton.Config]:
+        if _is_hopper():
+            return [
+                triton.Config(
+                    {"BLOCK_SIZE_M": 64, "BLOCK_SIZE_N": 128, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8},
+                    num_stages=3,
+                    num_warps=4,
                 )
-                w1_block = tl.load(
-                    w1 + intermediate_offsets[None, :] * stride_w1i + hidden_in_offsets[:, None] * stride_w1h,
-                    mask=(intermediate_offsets[None, :] < intermediate) & (hidden_in_offsets[:, None] < hidden),
-                    other=0.0,
+            ]
+        if _is_ampere():
+            return [
+                triton.Config(
+                    {"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 64, "GROUP_SIZE_M": 8},
+                    num_stages=3,
+                    num_warps=4,
                 )
-                w2_block = tl.load(
-                    w2 + intermediate_offsets[None, :] * stride_w2i + hidden_in_offsets[:, None] * stride_w2h,
-                    mask=(intermediate_offsets[None, :] < intermediate) & (hidden_in_offsets[:, None] < hidden),
-                    other=0.0,
+            ]
+        if _is_xpu():
+            return [
+                triton.Config(
+                    {"BLOCK_SIZE_M": 256, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8},
+                    num_stages=3,
+                    num_warps=16,
                 )
-                gate_accumulator += tl.dot(x_block, w1_block)
-                up_accumulator += tl.dot(x_block, w2_block)
-
-            if has_bias1:
-                gate_accumulator += tl.load(
-                    bias1 + intermediate_offsets,
-                    mask=intermediate_offsets < intermediate,
-                    other=0.0,
-                )[None, :]
-            if has_bias2:
-                up_accumulator += tl.load(
-                    bias2 + intermediate_offsets,
-                    mask=intermediate_offsets < intermediate,
-                    other=0.0,
-                )[None, :]
-
-            silu_values = gate_accumulator / (1.0 + tl.exp(-gate_accumulator))
-            fused_values = silu_values * up_accumulator
-            w3_block = tl.load(
-                w3 + hidden_out_offsets[None, :] * stride_w3h + intermediate_offsets[:, None] * stride_w3i,
-                mask=(hidden_out_offsets[None, :] < hidden) & (intermediate_offsets[:, None] < intermediate),
-                other=0.0,
+            ]
+        return [
+            triton.Config(
+                {"BLOCK_SIZE_M": 128, "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 32, "GROUP_SIZE_M": 8},
+                num_stages=3,
+                num_warps=4,
             )
-            output_accumulator += tl.dot(fused_values.to(w3_block.dtype), w3_block)
+        ]
 
-        if has_bias3:
-            output_accumulator += tl.load(
-                bias3 + hidden_out_offsets,
-                mask=hidden_out_offsets < hidden,
-                other=0.0,
-            )[None, :]
 
-        tl.store(
-            output + token_offsets[:, None] * stride_ot + hidden_out_offsets[None, :] * stride_oh,
-            output_accumulator,
-            mask=(token_offsets[:, None] < tokens) & (hidden_out_offsets[None, :] < hidden),
+    @triton.autotune(
+        configs=_get_autotune_configs(),
+        key=["N", "K", "IS_TRAINING"],
+    )
+    @triton.jit
+    def _fused_swiglu_fwd_kernel(
+        x_ptr,
+        w_g_ptr,
+        w_fc_ptr,
+        b_g_ptr,
+        b_fc_ptr,
+        y_ptr,
+        g_ptr,
+        fc_ptr,
+        M,
+        N,
+        K,
+        IS_TRAINING: tl.constexpr,
+        BLOCK_SIZE_M: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+        BLOCK_SIZE_K: tl.constexpr,
+        GROUP_SIZE_M: tl.constexpr,
+    ):
+        dtype = y_ptr.type.element_ty
+        pid = tl.program_id(axis=0)
+        num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
+        num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
+        num_pid_in_group = GROUP_SIZE_M * num_pid_n
+        group_id = pid // num_pid_in_group
+        first_pid_m = group_id * GROUP_SIZE_M
+        group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+        pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+        pid_n = (pid % num_pid_in_group) // group_size_m
+        if (pid_m * BLOCK_SIZE_M >= M) or (pid_n * BLOCK_SIZE_N >= N):
+            return
+
+        desc_x = tl.make_tensor_descriptor(
+            x_ptr,
+            shape=[M, K],
+            strides=[K, 1],
+            block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_K],
         )
+        desc_wg = tl.make_tensor_descriptor(
+            w_g_ptr,
+            shape=[K, N],
+            strides=[N, 1],
+            block_shape=[BLOCK_SIZE_K, BLOCK_SIZE_N],
+        )
+        desc_wfc = tl.make_tensor_descriptor(
+            w_fc_ptr,
+            shape=[K, N],
+            strides=[N, 1],
+            block_shape=[BLOCK_SIZE_K, BLOCK_SIZE_N],
+        )
+
+        off_m = pid_m * BLOCK_SIZE_M
+        off_n = pid_n * BLOCK_SIZE_N
+        offset_n = off_n + tl.arange(0, BLOCK_SIZE_N)
+        b_g = tl.load(b_g_ptr + offset_n, mask=offset_n < N, other=0.0)
+        b_fc = tl.load(b_fc_ptr + offset_n, mask=offset_n < N, other=0.0)
+
+        accumulator_g = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+        accumulator_fc = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+        off_k = 0
+        for k in tl.range(0, K, BLOCK_SIZE_K):
+            k = tl.multiple_of(k, BLOCK_SIZE_K)
+            x = desc_x.load([off_m, off_k])
+            w_g = desc_wg.load([k, off_n])
+            w_fc = desc_wfc.load([k, off_n])
+            accumulator_g = tl.dot(x, w_g, accumulator_g)
+            accumulator_fc = tl.dot(x, w_fc, accumulator_fc)
+            off_k += BLOCK_SIZE_K
+
+        accumulator_g += b_g[None, :]
+        accumulator_fc += b_fc[None, :]
+        accumulator_g = accumulator_g.to(dtype)
+        accumulator_fc = accumulator_fc.to(dtype)
+        silu_g = _fast_silu(accumulator_g)
+        y = (silu_g.to(tl.float32) * accumulator_fc.to(tl.float32)).to(dtype)
+
+        desc_y = tl.make_tensor_descriptor(
+            y_ptr,
+            shape=[M, N],
+            strides=[N, 1],
+            block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+        )
+        desc_y.store([off_m, off_n], y)
+
+        if IS_TRAINING:
+            desc_g = tl.make_tensor_descriptor(
+                g_ptr,
+                shape=[M, N],
+                strides=[N, 1],
+                block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+            )
+            desc_fc = tl.make_tensor_descriptor(
+                fc_ptr,
+                shape=[M, N],
+                strides=[N, 1],
+                block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+            )
+            desc_g.store([off_m, off_n], accumulator_g)
+            desc_fc.store([off_m, off_n], accumulator_fc)
 
 
 def _validate_swiglu_inputs(
     x: torch.Tensor,
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    w3: torch.Tensor,
-    bias1: torch.Tensor | None,
-    bias2: torch.Tensor | None,
-    bias3: torch.Tensor | None,
+    w_g: torch.Tensor,
+    w_fc: torch.Tensor,
+    b_g: torch.Tensor | None,
+    b_fc: torch.Tensor | None,
 ) -> None:
     if not is_triton_swiglu_available():
-        raise RuntimeError("Triton is required for triton_swiglu, but it is not installed.")
+        raise RuntimeError("Triton with tensor descriptors is required for triton_swiglu, but it is not installed.")
     if x.device.type not in {"cuda", "xpu"}:
         raise RuntimeError("triton_swiglu requires a CUDA or XPU tensor device.")
     if x.ndim < 2:
         raise ValueError("x must have shape (..., hidden).")
-    if w1.ndim != 2 or w2.ndim != 2 or w3.ndim != 2:
-        raise ValueError("w1, w2, and w3 must be 2D linear weights.")
+    if w_g.ndim != 2 or w_fc.ndim != 2:
+        raise ValueError("w_g and w_fc must be 2D weights with shape (hidden, intermediate).")
 
     hidden = x.shape[-1]
-    intermediate = w1.shape[0]
-    if w1.shape != w2.shape:
-        raise ValueError("w1 and w2 must have identical shape: (intermediate, hidden).")
-    if w1.shape[1] != hidden:
-        raise ValueError("w1 and w2 input dimension must match x.shape[-1].")
-    if w3.shape != (hidden, intermediate):
-        raise ValueError("w3 must have shape (hidden, intermediate).")
+    intermediate = w_g.shape[1]
+    if w_g.shape != w_fc.shape:
+        raise ValueError("w_g and w_fc must have identical shape: (hidden, intermediate).")
+    if w_g.shape[0] != hidden:
+        raise ValueError("w_g and w_fc input dimension must match x.shape[-1].")
 
-    tensors = [x, w1, w2, w3]
-    optional_tensors = [bias for bias in (bias1, bias2, bias3) if bias is not None]
+    tensors = [x, w_g, w_fc]
+    optional_tensors = [bias for bias in (b_g, b_fc) if bias is not None]
     for tensor in tensors + optional_tensors:
         if tensor.device != x.device:
             raise ValueError("x, weights, and biases must be on the same device.")
@@ -153,78 +210,64 @@ def _validate_swiglu_inputs(
             raise TypeError("x, weights, and biases must use the same dtype.")
     if x.dtype not in {torch.float16, torch.bfloat16, torch.float32}:
         raise TypeError("triton_swiglu supports float16, bfloat16, and float32 tensors.")
-    if bias1 is not None and bias1.shape != (intermediate,):
-        raise ValueError("bias1 must have shape (intermediate,).")
-    if bias2 is not None and bias2.shape != (intermediate,):
-        raise ValueError("bias2 must have shape (intermediate,).")
-    if bias3 is not None and bias3.shape != (hidden,):
-        raise ValueError("bias3 must have shape (hidden,).")
+    if b_g is not None and b_g.shape != (intermediate,):
+        raise ValueError("b_g must have shape (intermediate,).")
+    if b_fc is not None and b_fc.shape != (intermediate,):
+        raise ValueError("b_fc must have shape (intermediate,).")
 
 
 def triton_swiglu(
     x: torch.Tensor,
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    w3: torch.Tensor,
-    bias1: torch.Tensor | None = None,
-    bias2: torch.Tensor | None = None,
-    bias3: torch.Tensor | None = None,
-    *,
-    block_tokens: int = 16,
-    block_hidden_out: int = 32,
-    block_intermediate: int = 32,
-    block_hidden_in: int = 32,
+    w_g: torch.Tensor,
+    w_fc: torch.Tensor,
+    b_g: torch.Tensor | None = None,
+    b_fc: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Run full SwiGLU forward with one Triton fused kernel.
+    """Run the optimized fused two-GEMM SwiGLU forward kernel.
 
-    Computes ``linear(silu(linear(x, w1, bias1)) * linear(x, w2, bias2), w3, bias3)``.
+    Computes ``silu(x @ w_g + b_g) * (x @ w_fc + b_fc)`` where weights use
+    matrix-multiply layout ``(hidden, intermediate)``.
     """
-    _validate_swiglu_inputs(x, w1, w2, w3, bias1, bias2, bias3)
+    _validate_swiglu_inputs(x, w_g, w_fc, b_g, b_fc)
 
     hidden = x.shape[-1]
-    intermediate = w1.shape[0]
+    intermediate = w_g.shape[1]
     x_flat = x.reshape(-1, hidden).contiguous()
-    w1_contiguous = w1.contiguous()
-    w2_contiguous = w2.contiguous()
-    w3_contiguous = w3.contiguous()
-    bias1_contiguous = bias1.contiguous() if bias1 is not None else x_flat
-    bias2_contiguous = bias2.contiguous() if bias2 is not None else x_flat
-    bias3_contiguous = bias3.contiguous() if bias3 is not None else x_flat
-    output = torch.empty_like(x_flat)
+    tokens = x_flat.shape[0]
 
-    grid = (triton.cdiv(x_flat.shape[0], block_tokens), triton.cdiv(hidden, block_hidden_out))
-    _swiglu_forward_kernel[grid](
-        x_flat,
-        w1_contiguous,
-        w2_contiguous,
-        w3_contiguous,
-        bias1_contiguous,
-        bias2_contiguous,
-        bias3_contiguous,
-        output,
-        x_flat.shape[0],
-        hidden,
-        intermediate,
-        x_flat.stride(0),
-        x_flat.stride(1),
-        w1_contiguous.stride(0),
-        w1_contiguous.stride(1),
-        w2_contiguous.stride(0),
-        w2_contiguous.stride(1),
-        w3_contiguous.stride(0),
-        w3_contiguous.stride(1),
-        output.stride(0),
-        output.stride(1),
-        bias1 is not None,
-        bias2 is not None,
-        bias3 is not None,
-        block_tokens,
-        block_hidden_out,
-        block_intermediate,
-        block_hidden_in,
-        num_warps=4,
+    w_g_contiguous = w_g.contiguous()
+    w_fc_contiguous = w_fc.contiguous()
+    b_g_contiguous = b_g.contiguous() if b_g is not None else torch.zeros((intermediate,), device=x.device, dtype=x.dtype)
+    b_fc_contiguous = b_fc.contiguous() if b_fc is not None else torch.zeros((intermediate,), device=x.device, dtype=x.dtype)
+    output = torch.empty((tokens, intermediate), device=x.device, dtype=x.dtype)
+    gate = x.new_empty(1)
+    fc = x.new_empty(1)
+
+    total_len = tokens
+    if intermediate % 64 != 0 or hidden % 32 != 0:
+        raise ValueError(
+            "triton_swiglu tensor descriptor kernel requires intermediate to be divisible by 64 "
+            "and hidden to be divisible by 32."
+        )
+
+    grid = lambda META: (
+        triton.cdiv(total_len, META["BLOCK_SIZE_M"]) * triton.cdiv(intermediate, META["BLOCK_SIZE_N"]),
     )
-    return output.reshape(x.shape)
+    _fused_swiglu_fwd_kernel[grid](
+        x_flat,
+        w_g_contiguous,
+        w_fc_contiguous,
+        b_g_contiguous,
+        b_fc_contiguous,
+        output,
+        gate,
+        fc,
+        total_len,
+        intermediate,
+        hidden,
+        IS_TRAINING=False,
+    )
+    return output.reshape(*x.shape[:-1], intermediate)
 
 
 __all__ = ["is_triton_swiglu_available", "triton_swiglu"]

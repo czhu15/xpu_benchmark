@@ -25,9 +25,9 @@
     {"batch": 4, "heads": 16, "sequence": 128, "head_dim": 64}
   ],
   "triton_flash_attention": [
-    {"sequence": 262144, "heads": 8, "head_dim": 64}
+    {"sequence": 8192, "heads": 8, "head_dim": 64}
   ],
   "triton_swiglu": [
-    {"tokens": 262144, "hidden": 512, "intermediate": 1024}
+    {"tokens": 289239, "hidden": 512, "intermediate": 1024}
   ]
 }
